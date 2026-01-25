@@ -1,8 +1,6 @@
 ---
-name: laminar-skill
+name: query-api
 description: Use when working with Laminar's SQL Query API (/v1/sql/query): design SELECT-only ClickHouse queries, use parameters, authenticate with project API keys, and interpret response data from spans, traces, events, tags, datasets, and evaluations.
-metadata:
-  tags: laminar, sql, clickhouse, observability, query, analytics
 ---
 
 # Laminar Query API

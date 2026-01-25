@@ -5,7 +5,7 @@ Skill for working with Laminar's SQL Query API (POST /v1/sql/query).
 ## Install
 
 ```bash
-npx skills add lmnr-ai/laminar-skills
+npx skills add lmnr-ai/laminar-skills --skill query-api
 ```
 
 ## Example prompts
@@ -16,8 +16,8 @@ npx skills add lmnr-ai/laminar-skills
 
 ## Contents
 
-- `skills/laminar-skill/SKILL.md`
-- `skills/laminar-skill/references/laminar-query-api.md`
+- `skills/query-api/SKILL.md`
+- `skills/query-api/references/laminar-query-api.md`
 
 ## Notes
 
