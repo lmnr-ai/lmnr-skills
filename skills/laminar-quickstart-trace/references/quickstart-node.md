@@ -39,7 +39,7 @@ const result = await observe(
 
 console.log('Laminar quickstart run id:', runId);
 console.log('Result:', result);
-await Laminar.flush();
+await Laminar.flush(); // IMPORTANT: await is crucial, and this line is required in short-lived scripts
 ```
 
 ## Notes

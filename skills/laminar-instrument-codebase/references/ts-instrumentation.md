@@ -3,21 +3,64 @@
 ## Initialize once
 
 Place `Laminar.initialize()` as early as possible (after other instrumentation libraries).
+For most semi-automatic instrumentations to work, you must pass `instrumentModules`.
 
 ```ts
 import { Laminar } from '@lmnr-ai/lmnr';
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 
 Laminar.initialize({
   projectApiKey: process.env.LMNR_PROJECT_API_KEY,
+  instrumentModules: {
+    openAI: OpenAI,
+    anthropic: Anthropic,
+  },
   // For self-hosted Laminar:
   // baseUrl: 'http://localhost',
   // httpPort: 8000,
   // grpcPort: 8001,
-  // instrumentModules: {}, // disable auto instrumentation
 });
 ```
 
-If you already use another OpenTelemetry setup (for example, Next.js with `@vercel/otel`), use `LaminarSpanProcessor` and `initializeLaminarInstrumentations()` and do NOT call `Laminar.initialize()`.
+If a module is imported before `Laminar.initialize()` runs (common in Next.js server components),
+use `Laminar.patch({ ... })` in the module that constructs the client.
+
+```ts
+import { Laminar } from '@lmnr-ai/lmnr';
+import OpenAI from 'openai';
+
+Laminar.patch({ openAI: OpenAI });
+```
+
+AI SDK (Vercel) instrumentation is **manual**: pass the Laminar tracer to
+`experimental_telemetry` on each call.
+
+```ts
+import { getTracer } from '@lmnr-ai/lmnr';
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+await generateText({
+  model: openai('gpt-4.1-nano'),
+  prompt: 'What is Laminar?',
+  experimental_telemetry: {
+    isEnabled: true,
+    tracer: getTracer(),
+  },
+});
+```
+
+## Using another OpenTelemetry SDK
+
+If you already use another OpenTelemetry setup (for example, Next.js with
+`@vercel/otel`), pick one of these patterns:
+
+**A) Single pipeline (export spans to Laminar via span processor).**  
+Use `LaminarSpanProcessor` and `initializeLaminarInstrumentations()` inside your
+existing OpenTelemetry init. Do **not** call `Laminar.initialize()` to avoid
+double instrumentation. Spans will go to whatever exporters your OTel setup uses;
+including `LaminarSpanProcessor` sends a copy to Laminar.
 
 ```ts
 import { registerOTel } from '@vercel/otel';
@@ -38,14 +81,38 @@ export async function register() {
 }
 ```
 
+**B) Dual pipeline (general observability elsewhere, LLM tracing in Laminar).**  
+Initialize your existing OTel SDK first, then call `Laminar.initialize()` to
+instrument only the LLM SDKs you want in Laminar. Make sure only one pipeline
+instruments each module.
+
+```ts
+import { registerOTel } from '@vercel/otel';
+import OpenAI from 'openai';
+
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    registerOTel({ serviceName: 'my-service' });
+
+    const { Laminar } = await import('@lmnr-ai/lmnr');
+    Laminar.initialize({
+      projectApiKey: process.env.LMNR_PROJECT_API_KEY,
+      instrumentModules: { openAI: OpenAI },
+    });
+  }
+}
+```
+
 ## Add manual spans
 
 Use `observe` to wrap the functions that represent meaningful steps.
+Pass arguments after the function to capture them as span input (or set `input`
+explicitly).
 
 ```ts
 import { observe } from '@lmnr-ai/lmnr';
 
-await observe(
+const result = await observe(
   {
     name: 'agent.run',
     sessionId: sessionId,
@@ -53,11 +120,14 @@ await observe(
     tags: ['agent', 'search'],
     metadata: { route: '/search' },
   },
-  async () => {
-    await observe({ name: 'retrieve.context' }, async () => {
+  async (query, limit) => {
+    return await observe({ name: 'retrieve.context' }, async () => {
       // retrieval logic
+      return retrieve(query, limit);
     });
   },
+  query,
+  limit,
 );
 ```
 
