@@ -40,7 +40,7 @@ if __name__ == "__main__":
     result = main()
     print("Laminar quickstart run id:", run_id)
     print("Result:", result)
-    Laminar.flush()
+    Laminar.flush()  # IMPORTANT: required in short-lived scripts
 ```
 
 ## Notes
