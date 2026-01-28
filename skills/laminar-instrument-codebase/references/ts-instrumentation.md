@@ -120,12 +120,7 @@ const result = await observe(
     tags: ['agent', 'search'],
     metadata: { route: '/search' },
   },
-  async (query, limit) => {
-    return await observe({ name: 'retrieve.context' }, async () => {
-      // retrieval logic
-      return retrieve(query, limit);
-    });
-  },
+  async (query, limit) => await retrieve(query, limit),
   query,
   limit,
 );
