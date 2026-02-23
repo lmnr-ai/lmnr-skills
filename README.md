@@ -7,7 +7,9 @@ Skills for Laminar: quick demos, codebase instrumentation, and the SQL Query API
 ```bash
 npx skills add lmnr-ai/laminar-skills --skill laminar-quickstart-trace
 npx skills add lmnr-ai/laminar-skills --skill laminar-instrument-codebase
+npx skills add lmnr-ai/laminar-skills --skill laminar-migrate-observability
 npx skills add lmnr-ai/laminar-skills --skill query-api
+npx skills add lmnr-ai/laminar-skills --skill trace-claude-code
 ```
 
 ## Example prompts
@@ -15,6 +17,7 @@ npx skills add lmnr-ai/laminar-skills --skill query-api
 - "Show me a Laminar example that produces a trace in under 2 minutes."
 - "Instrument this codebase with Laminar and choose the most useful spans."
 - "Use the Laminar Query API to find the slowest spans in the last 24 hours."
+- "Trace my Claude Code session into Laminar and show me SQL to analyze it."
 
 ## Contents
 
@@ -26,8 +29,15 @@ npx skills add lmnr-ai/laminar-skills --skill query-api
 - `skills/laminar-instrument-codebase/references/function-selection.md`
 - `skills/laminar-instrument-codebase/references/ts-instrumentation.md`
 - `skills/laminar-instrument-codebase/references/python-instrumentation.md`
+- `skills/laminar-migrate-observability/SKILL.md`
+- `skills/laminar-migrate-observability/references/migration-mapping.md`
+- `skills/laminar-migrate-observability/references/otel-exporter.md`
 - `skills/query-api/SKILL.md`
 - `skills/query-api/references/laminar-query-api.md`
+- `skills/trace-claude-code/SKILL.md`
+- `skills/trace-claude-code/hooks/claude_trace.py`
+- `skills/trace-claude-code/references/claude-code-hooks.md`
+- `skills/trace-claude-code/references/claude-code-sql.md`
 
 ## Notes
 
