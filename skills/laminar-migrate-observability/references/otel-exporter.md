@@ -15,3 +15,6 @@ instrumentation but redirect export to Laminar.
 - Use the OTLP endpoint documented for your Laminar deployment (cloud vs self-hosted).
 - Ensure the authorization header/metadata is set exactly as Laminar expects.
 - If you see duplicate spans, remove any second tracer/auto-instrumentation.
+- Reference docs for exact endpoints and headers:
+  - https://docs.laminar.sh/tracing/otel
+  - https://docs.laminar.sh/tracing/troubleshooting-opentelemetry

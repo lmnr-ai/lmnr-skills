@@ -7,6 +7,7 @@ Use this as a checklist to preserve semantics while switching to Laminar.
 - Keep the same trace boundary (request/job/turn).
 - Keep span names stable and low-cardinality.
 - Put IDs (user, session, document) in metadata, not span names.
+- Prefer Laminar’s trace-level `user_id` / `session_id` fields (separate from metadata) when you have those IDs.
 - Keep tags low-cardinality (environment, feature flags, outcome).
 - Avoid double-instrumentation.
 
