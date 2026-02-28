@@ -7,6 +7,7 @@ Skills for Laminar: quick demos, codebase instrumentation, and the SQL Query API
 ```bash
 npx skills add lmnr-ai/laminar-skills --skill laminar-quickstart-trace
 npx skills add lmnr-ai/laminar-skills --skill laminar-instrument-codebase
+npx skills add lmnr-ai/laminar-skills --skill laminar-migrate-observability
 npx skills add lmnr-ai/laminar-skills --skill query-api
 ```
 
@@ -26,6 +27,9 @@ npx skills add lmnr-ai/laminar-skills --skill query-api
 - `skills/laminar-instrument-codebase/references/function-selection.md`
 - `skills/laminar-instrument-codebase/references/ts-instrumentation.md`
 - `skills/laminar-instrument-codebase/references/python-instrumentation.md`
+- `skills/laminar-migrate-observability/SKILL.md`
+- `skills/laminar-migrate-observability/references/migration-mapping.md`
+- `skills/laminar-migrate-observability/references/otel-exporter.md`
 - `skills/query-api/SKILL.md`
 - `skills/query-api/references/laminar-query-api.md`
 
