@@ -1,6 +1,6 @@
 # laminar-skill
 
-Skills for Laminar: quick demos, codebase instrumentation, and the SQL Query API.
+Skills for Laminar: quick demos, codebase instrumentation, the SQL Query API, and the agent debugger.
 
 ## Install
 
@@ -9,6 +9,7 @@ npx skills add lmnr-ai/laminar-skills --skill laminar-quickstart-trace
 npx skills add lmnr-ai/laminar-skills --skill laminar-instrument-codebase
 npx skills add lmnr-ai/laminar-skills --skill laminar-migrate-observability
 npx skills add lmnr-ai/laminar-skills --skill query-api
+npx skills add lmnr-ai/laminar-skills --skill laminar-debug-trace
 ```
 
 ## Example prompts
@@ -16,6 +17,7 @@ npx skills add lmnr-ai/laminar-skills --skill query-api
 - "Show me a Laminar example that produces a trace in under 2 minutes."
 - "Instrument this codebase with Laminar and choose the most useful spans."
 - "Use the Laminar Query API to find the slowest spans in the last 24 hours."
+- "Debug my agent with the Laminar debugger: record a run, find the bad LLM call, and replay up to it."
 
 ## Contents
 
@@ -32,6 +34,7 @@ npx skills add lmnr-ai/laminar-skills --skill query-api
 - `skills/laminar-migrate-observability/references/otel-exporter.md`
 - `skills/query-api/SKILL.md`
 - `skills/query-api/references/laminar-query-api.md`
+- `skills/laminar-debug-trace/SKILL.md`
 
 ## Notes
 
