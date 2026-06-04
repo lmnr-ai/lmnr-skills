@@ -162,7 +162,10 @@ ORDER BY start_time ASC;
 ```
 
 `span_type` is one of `LLM`, `TOOL`, `DEFAULT`, or `CACHED` (a replayed LLM
-call in a replay run's trace). To count the calls along the loop (this is what
+call in a replay run's trace). Only **LLM calls along the loop** count toward
+the cache window — tool executions don't. Rule of thumb: a tool-using turn
+produces one LLM call per tool round-trip **plus one** final synthesis call
+(N tool calls → N+1 LLM calls). To count the calls along the loop (this is what
 `LMNR_DEBUG_CACHE_UNTIL` indexes into — replayed calls count too, so include
 `CACHED` when the source trace is itself a replay):
 
@@ -216,6 +219,12 @@ recorded responses instantly; past it, the run goes live.
 `cache_until: 0` — and **a zero cache window means no replay at all** (the run
 is fully live). Always set `LMNR_DEBUG_CACHE_UNTIL` explicitly; individual
 `LMNR_DEBUG_*` vars override the pointer file per field.
+
+`FROM_LAST_RUN` replays the **most recent** run — the pointer file always
+tracks the latest one. If you've recorded other runs since the one you want to
+replay, skip `FROM_LAST_RUN` and pass `LMNR_DEBUG_REPLAY_TRACE_ID=<trace-id>`
+explicitly (get the id from the session's SQL listing or your earlier pointer
+output), or you'll silently replay the wrong trace.
 
 `LMNR_DEBUG_CACHE_UNTIL` accepts either form:
 

@@ -27,10 +27,15 @@ export LMNR_PROJECT_API_KEY=<your-key>
 Self-hosted deployments override the API URL and HTTP port. Do **not** include the port in `--base-url`:
 
 ```bash
-lmnr-cli --base-url http://localhost --port 8000 sql schema
+lmnr-cli sql schema --base-url http://localhost --port 8000
 ```
 
 Defaults: `--base-url https://api.lmnr.ai`, `--port 443` (use `8000` for local self-hosted).
+
+`--base-url` / `--port` / `--project-api-key` belong to each subcommand group (`sql`,
+`trace`, `debug`, `dataset`), **not** the top-level `lmnr-cli` — placing them before the
+subcommand fails with `unknown option`. Appending them to the end of the full command
+always works.
 
 ## `lmnr-cli`
 
