@@ -71,7 +71,11 @@ The JSON payload on that line looks like:
 
 Extract what you need with `jq` or a simple pattern match. **Do not rely on the console output being easy to read at a glance** — other logging will drown the Laminar lines, so always grep explicitly.
 
-Use `LMNR_DEBUG_SESSION_ID` in all consequent runs to associate traces with the current session.
+### Persist the session id 
+
+The `session_id` from your first run identifies this entire debugging session. **Every subsequent run MUST set `LMNR_DEBUG_SESSION_ID` to it** — a run without it silently mints a new, orphaned session and your traces stop appearing together in the UI.
+
+Persist it the moment you capture it: save it to a file, or `export` it if your shell is long-lived. Before any run after the first, confirm it's set.
 
 ```bash
 LMNR_DEBUG=true LMNR_DEBUG_SESSION_ID=<session-id> node my_agent.js
@@ -271,6 +275,9 @@ debug trace, just no speedup. A live fallback is not an error.
 
 **Replay assumes a sequential agent loop.** Wildly parallel LLM fan-out won't
 replay cleanly; that's expected.
+
+**Restart what doesn't hot-reload.** If the stack has a long-lived component
+that loads code (e.g. a Temporal worker), restart it after every edit, otherwise your replay exercises stale code.
 
 **Move your boundary, not your whole approach.** The fastest rhythm is: replay
 up to the suspect call → tweak → re-run → read the new trace → adjust the
