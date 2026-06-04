@@ -46,13 +46,17 @@ LMNR_DEBUG=true python my_agent.py        # or whatever the run command is
 Truthy values are `true`, `1`, `yes`, `on`. A debug run:
 
 - mints a debug session and registers it with Laminar,
-- exports all spans as a normal trace,
-- prints a debugger URL you can open in the UI, and
-- writes a pointer file at `./.lmnr/last-run.json` with this run's ids, and
-  prints the same payload to the console (prefixed `LMNR_DEBUG_RUN `) for when
-  the filesystem isn't available. (It may also be a good idea to gitignore the `.lmnr` directory.)
+- exports all spans as a normal trace, and
+- prints a `LMNR_DEBUG_RUN ` line to the console containing the run's ids and debugger URL.
 
-The pointer file is the handoff between runs
+**Always capture and filter stdout/stderr for `LMNR_DEBUG_RUN`.** That line is your handoff between runs — it carries the `trace_id`, `session_id`, and `debugger_url` you need for every subsequent step. Pipe the child agent's output and grep for it explicitly:
+
+```bash
+LMNR_DEBUG=true node my_agent.js 2>&1 | tee run.log
+grep 'LMNR_DEBUG_RUN' run.log
+```
+
+The JSON payload on that line looks like:
 
 ```json
 {
@@ -64,6 +68,8 @@ The pointer file is the handoff between runs
   "started_at": "…"
 }
 ```
+
+Extract what you need with `jq` or a simple pattern match. **Do not rely on the console output being easy to read at a glance** — other logging will drown the Laminar lines, so always grep explicitly.
 
 Use `LMNR_DEBUG_SESSION_ID` in all consequent runs to associate traces with the current session.
 
@@ -82,17 +88,29 @@ Name the session once, describing the investigation:
 npx lmnr-cli debug session set-name <session-id> "Fix report length + search tool"
 ```
 
-Then write a note on **every** trace you produce (aim for ~20–200 words of
-well-structured markdown — headings, short lists, inline code). The note is
-rendered in the UI and is the user's primary account of what happened in this
-run: what you were testing, what the trace shows, what you changed, and what to
-look at next.
+Notes on a trace come in two forms that complement each other.
+
+### Pre-run note (set before you run). Mandatory.
+
+Write this note **before** launching the child agent. It appears in the UI the moment the trace lands there, giving the human a real-time view of your reasoning. Set it via the `LMNR_TRACE_METADATA` environment variable when you invoke the agent:
 
 ```bash
-npx lmnr-cli trace append-note <trace-id> "## What this run tests
-Replays the first 3 calls, runs the 4th (report synthesis) live with the new
-length cap. The <span id='<spanId>' name='synthesis call' /> now returns ~180
-words (was ~600)."
+LMNR_DEBUG=true \
+LMNR_DEBUG_SESSION_ID=<session-id> \
+LMNR_TRACE_METADATA='{"rollout.note": "## What I am about to test\nReplaying calls 1–3, running call 4 (report synthesis) live with the new length cap.\n\n"}' \
+node my_agent.js 2>&1 | tee run.log
+```
+
+Format: `LMNR_TRACE_METADATA` must be a stringified JSON object with key `rollout.note` whose value is your note in markdown. **End the value with a double newline `\n\n`** so subsequent `append-note` entries start cleanly on a new paragraph.
+
+### Post-run note (appended after you run). Optional.
+
+Write a follow-up note on **every** trace after it completes (aim for ~20–200 words of well-structured markdown — headings, short lists, inline code). Record what the trace actually showed, what you observed, and what to look at next.
+
+```bash
+npx lmnr-cli trace append-note <trace-id> "## What this run showed
+The <span id='<spanId>' name='synthesis call' /> now returns ~180 words (was ~600).
+Length cap is working. Next: check that citations are still intact."
 ```
 
 Notes are **append-only**: each `append-note` call adds a new paragraph to the
@@ -122,12 +140,6 @@ renders it as a clickable **span chip** that opens that span in the trace view:
   `<span id='<spanId>' name='synthesis' reference_text='~180 words, was ~600' />`.
 
 The span must belong to the trace the note is attached to.
-
-Open the session in the browser straight from the pointer file:
-
-```bash
-open "$(jq -r .debugger_url .lmnr/last-run.json)"   # macOS; use xdg-open on Linux
-```
 
 ## 3. Inspect the trace with SQL
 
@@ -204,27 +216,26 @@ npx lmnr-cli sql query "…" --base-url http://localhost --port 8000
 
 ## 4. Replay to iterate fast
 
-After editing the child agent, re-run seeded from the last run:
+After editing the child agent, re-run with explicit ids taken from the previous run's `LMNR_DEBUG_RUN` console line:
 
 ```bash
-LMNR_DEBUG=true LMNR_DEBUG_FROM_LAST_RUN=true LMNR_DEBUG_CACHE_UNTIL=3 node my_agent.js
+LMNR_DEBUG=true \
+LMNR_DEBUG_SESSION_ID=<session-id> \
+LMNR_DEBUG_REPLAY_TRACE_ID=<trace-id> \
+LMNR_DEBUG_CACHE_UNTIL=3 \
+node my_agent.js 2>&1 | tee run.log
+grep 'LMNR_DEBUG_RUN' run.log
 ```
 
 This replays the LLM calls along the agent's main loop from the source trace's
 cache instead of hitting the model. Calls inside the cache window return their
 recorded responses instantly; past it, the run goes live.
 
-`LMNR_DEBUG_FROM_LAST_RUN` seeds `replay_trace_id` / `session_id` /
-`cache_until` from the pointer file, but a fresh record run's pointer has
-`cache_until: 0` — and **a zero cache window means no replay at all** (the run
-is fully live). Always set `LMNR_DEBUG_CACHE_UNTIL` explicitly; individual
-`LMNR_DEBUG_*` vars override the pointer file per field.
+**`LMNR_DEBUG_SESSION_ID` is required on every run after the first.** It is what groups all your traces into one session in the UI. Without it, each run mints a new, orphaned session. Always read it from the `LMNR_DEBUG_RUN` line of your first (or most recent) run and carry it forward for the entire investigation.
 
-`FROM_LAST_RUN` replays the **most recent** run — the pointer file always
-tracks the latest one. If you've recorded other runs since the one you want to
-replay, skip `FROM_LAST_RUN` and pass `LMNR_DEBUG_REPLAY_TRACE_ID=<trace-id>`
-explicitly (get the id from the session's SQL listing or your earlier pointer
-output), or you'll silently replay the wrong trace.
+**`LMNR_DEBUG_REPLAY_TRACE_ID`** tells the debugger which recorded trace to pull cached LLM responses from. Read the `trace_id` from the `LMNR_DEBUG_RUN` line of the run you want to replay. If you want to replay an earlier run (not the most recent one), use its `trace_id` from that run's captured output or from the session's SQL listing.
+
+A fresh record run has `cache_until: 0` — and **a zero cache window means no replay at all** (the run is fully live). Always set `LMNR_DEBUG_CACHE_UNTIL` explicitly.
 
 `LMNR_DEBUG_CACHE_UNTIL` accepts either form:
 
