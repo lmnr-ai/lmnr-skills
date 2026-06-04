@@ -1,6 +1,6 @@
 ---
 name: laminar
-description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces, or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
+description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces, debugging an agent under LMNR_DEBUG (recording runs, replaying cached LLM calls, annotating debug sessions), or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
 ---
 
 # Laminar
@@ -30,6 +30,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 | Use `lmnr-cli` / `lmnr` CLI (sql, datasets, dev, eval, cursor rules) | [references/cli.md](references/cli.md) |
 | Query spans/traces/events with SQL (API or CLI) | [references/sql-query-api.md](references/sql-query-api.md) |
 | Migrate from Langfuse / LangSmith / Helicone / OpenTelemetry | [references/migration.md](references/migration.md) |
+| Debug an agent: record under `LMNR_DEBUG`, replay cached LLM calls, annotate sessions | [references/debugging.md](references/debugging.md) |
 
 The cross-cutting concepts shared by both SDKs — span context propagation, tags, metadata, sessions, privacy controls, custom LLM cost tracking, flushing — live in the two instrumentation files (one per language) so each is complete on its own.
 
