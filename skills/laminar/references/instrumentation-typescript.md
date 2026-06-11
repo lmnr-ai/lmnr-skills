@@ -42,12 +42,14 @@ Laminar.initialize({
     openAI: OpenAI,
     anthropic: Anthropic,
   },
-  // Self-hosted Laminar:
+  // Self-hosted Laminar (baseUrl must not include the port):
   // baseUrl: 'http://localhost',
   // httpPort: 8000,
   // grpcPort: 8001,
 });
 ```
+
+Spans export over gRPC by default. If you see an export error (`ECONNRESET`, `14 UNAVAILABLE`, "Protocol error"), check that `grpcPort` matches your instance — a wrong gRPC port is the usual cause, not the transport itself.
 
 If a module is imported before `Laminar.initialize()` runs (common in serverless and Next.js server components), patch it in the module that constructs the client instead:
 
@@ -93,6 +95,8 @@ await generateText({
   },
 });
 ```
+
+`experimental_telemetry` is sufficient on its own — the AI SDK call emits its own span with nested LLM and tool spans. **Do not wrap the call in `observe`** just to get a root span; that adds a redundant layer. Reach for `observe` only to capture your own orchestration steps *outside* the AI SDK call (see [Manual spans](#manual-spans-with-observe)). To attach trace context, pass it through `experimental_telemetry.metadata`, or set it with `Laminar.setTraceUserId` / `setTraceSessionId` from an enclosing span you already have — not by adding one solely to hold these values.
 
 ## Coexisting with another OpenTelemetry SDK
 
