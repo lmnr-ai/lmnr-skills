@@ -178,16 +178,17 @@ ORDER BY start_time ASC;
 ```
 
 `span_type` is one of `LLM`, `TOOL`, `DEFAULT`, or `CACHED` (a replayed LLM
-call in a replay run's trace). Only **LLM calls along the loop** count toward
-the cache window — tool executions don't. Rule of thumb: a tool-using turn
-produces one LLM call per tool round-trip **plus one** final synthesis call
-(N tool calls → N+1 LLM calls). To count the calls along the loop (this is what
-`LMNR_DEBUG_CACHE_UNTIL` indexes into — replayed calls count too, so include
-`CACHED` when the source trace is itself a replay):
+call in a replay run's trace). A replay boundary points
+`LMNR_DEBUG_CACHE_UNTIL` at the **span id of an LLM call along the loop** —
+tool executions can't be boundaries. Read the loop's LLM calls in order to find
+the one just before the call you want to run live, and grab its `span_id`. If
+the source trace is itself a replay, its cached calls (`span_type = 'CACHED'`)
+are valid boundaries too, so include them:
 
 ```sql
-SELECT count() FROM spans
-WHERE trace_id = '<trace-id>' AND span_type IN ('LLM', 'CACHED');
+SELECT span_id, name, start_time FROM spans
+WHERE trace_id = '<trace-id>' AND span_type IN ('LLM', 'CACHED')
+ORDER BY start_time ASC;
 ```
 
 Discover the full schema any time with `npx lmnr-cli sql schema`. Useful tables:
