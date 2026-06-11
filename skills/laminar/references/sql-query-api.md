@@ -2,8 +2,8 @@
 
 Run SELECT-only ClickHouse SQL over your project's data. Two ways in:
 
-- **HTTP API** — `POST /v1/sql/query` (covered below).
-- **CLI** — `lmnr-cli sql query "<sql>"` (see [cli.md](cli.md)). Same engine; the CLI is the easiest path for shells and AI agents.
+- **CLI** — `lmnr-cli sql query "<sql>"` (see [cli.md](cli.md)). Use the CLI is the most convenient way to query.
+- **HTTP API** — `POST /v1/sql/query` (covered below). Only use the HTTP API for scripting or if you don't have CLI access.
 
 ## Endpoint and auth
 
