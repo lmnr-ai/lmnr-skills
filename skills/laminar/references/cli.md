@@ -41,7 +41,7 @@ Tokens are stored at `~/.config/lmnr/credentials.json` (mode `0600`, XDG-aware v
 Point the CLI at your deployment. `--frontend-url` is the dashboard/issuer (used for login); `--base-url` is the data API and carries **no port** — pass the port separately with `--port`.
 
 ```bash
-lmnr-cli login --frontend-url http://localhost:3010 --base-url http://localhost:8010
+lmnr-cli login --frontend-url http://localhost:3000 --base-url http://localhost --port 8000
 lmnr-cli sql schema --base-url http://localhost --port 8000
 ```
 

@@ -58,7 +58,7 @@ Ground rules:
 
 ## Prerequisites for any task
 
-- A Laminar **project API key** (dashboard → **Settings → Project API Keys**), set as `LMNR_PROJECT_API_KEY`.
+- A Laminar **project API key** (dashboard → **Settings → Project API Keys**), set as `LMNR_PROJECT_API_KEY`, or mint one automatically with the CLI `setup` command [references/cli.md](references/cli.md)
 - **Self-hosted Laminar:** also set the base URL. SDKs accept `baseUrl`/`base_url` (or `LMNR_BASE_URL`); local defaults are HTTP port `8000` and gRPC port `8001`. The CLI uses `--base-url http://localhost --port 8000`.
 
 ## Verify before declaring done

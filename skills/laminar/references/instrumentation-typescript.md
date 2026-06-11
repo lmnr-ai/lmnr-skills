@@ -102,7 +102,11 @@ await generateText({
 
 If the app already uses OpenTelemetry (e.g. `@vercel/otel`), pick one pattern and make sure only one pipeline instruments each module.
 
-**A) Single pipeline — export Laminar spans through your existing OTel setup.** Use `LaminarSpanProcessor` and `initializeLaminarInstrumentations()` inside your OTel init. Do **not** also call `Laminar.initialize()`.
+**A) Dual pipeline (Recommended) — general observability elsewhere, LLM tracing in Laminar.** Initialize your existing OTel SDK first, then call `Laminar.initialize()` to instrument only the LLM SDKs you want in Laminar.
+
+If you see noisy HTTP/fs/dns spans, another OTel auto-instrumentation is running before Laminar — disable it so Laminar stays high-signal.
+
+**B) Single pipeline — export Laminar spans through your existing OTel setup.** Use `LaminarSpanProcessor` and `initializeLaminarInstrumentations()` inside your OTel init. Do **not** also call `Laminar.initialize()`.
 
 ```ts
 import { registerOTel } from '@vercel/otel';
@@ -121,9 +125,6 @@ export async function register() {
 }
 ```
 
-**B) Dual pipeline — general observability elsewhere, LLM tracing in Laminar.** Initialize your existing OTel SDK first, then call `Laminar.initialize()` to instrument only the LLM SDKs you want in Laminar.
-
-If you see noisy HTTP/fs/dns spans, another OTel auto-instrumentation is running before Laminar — disable it so Laminar stays high-signal.
 
 ## Manual spans with `observe`
 

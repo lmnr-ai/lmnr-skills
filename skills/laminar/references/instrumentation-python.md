@@ -66,8 +66,6 @@ from lmnr import observe
 
 @observe(
     name="agent.run",
-    session_id=session_id,
-    user_id=user_id,
     tags=["agent", "search"],
     metadata={"route": "/search"},
 )
