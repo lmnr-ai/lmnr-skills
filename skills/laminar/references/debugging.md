@@ -63,7 +63,7 @@ The JSON payload on that line looks like:
   "trace_id": "…",
   "session_id": "…",
   "replay_trace_id": null,
-  "cache_until": 0,
+  "cache_until": "…",
   "debugger_url": "https://…/project/<projectId>/debugger-sessions/<sessionId>",
   "started_at": "…"
 }
@@ -218,6 +218,11 @@ flags (or `LMNR_BASE_URL` / `LMNR_PORT` in the environment):
 npx lmnr-cli sql query "…" --base-url http://localhost --port 8000
 ```
 
+First run (without explicit session ID env variable) will also open the frontend
+UI for the user to view. If the Laminar SDK resolves the base URL of the backend
+to localhost, the frontend URL is assumed to be `http://localhost:5667`, otherwise
+cloud UI at laminar.sh is opened. Override with `LMNR_FRONTEND_URL`.
+
 ## 4. Replay to iterate fast
 
 After editing the child agent, re-run with explicit ids taken from the previous run's `LMNR_DEBUG_RUN` console line:
@@ -239,32 +244,36 @@ recorded responses instantly; past it, the run goes live.
 
 **`LMNR_DEBUG_REPLAY_TRACE_ID`** tells the debugger which recorded trace to pull cached LLM responses from. Read the `trace_id` from the `LMNR_DEBUG_RUN` line of the run you want to replay. If you want to replay an earlier run (not the most recent one), use its `trace_id` from that run's captured output or from the session's SQL listing.
 
-A fresh record run has `cache_until: 0` — and **a zero cache window means no replay at all** (the run is fully live). Always set `LMNR_DEBUG_CACHE_UNTIL` explicitly.
+A fresh record run has `cache_until: null` — and **a zero cache window means no replay at all** (the run is fully live). Always set `LMNR_DEBUG_CACHE_UNTIL` explicitly.
 
-`LMNR_DEBUG_CACHE_UNTIL` accepts either form:
+`LMNR_DEBUG_CACHE_UNTIL` takes a span id — replay *through* that span
+(inclusive: the named call itself comes from cache, the next one runs live).
+Accepts the span's full UUID, the last two UUID groups, the 16-hex OTel id, or
+any hex suffix — whatever you copied from SQL or the UI. A span id that isn't
+one of the loop's LLM calls runs fully live.
 
-- **A count `N`** — replay the first N calls along the loop, then go live.
-- **A span id** — replay *through* that span (inclusive: the named call itself
-  comes from cache, the next one runs live). Accepts the span's full UUID, the
-  last two UUID groups, the 16-hex OTel id, or any hex suffix — whatever you
-  copied from SQL or the UI. A span id that isn't one of the loop's LLM calls
-  warns and runs fully live.
+**Cache lookup key: `(trace_id, hash_of_inputs)`.** The hash covers the LLM
+call's inputs — messages, tools, model parameters — but **excludes the system
+prompt**. This means you can freely rewrite your system prompt between replay
+runs and still hit the cache. Changing anything else (first user message, tool
+outputs, etc.) changes the hash and causes a miss. Once a miss occurs, the run
+goes fully live for all subsequent calls in that iteration.
 
 ```bash
 LMNR_DEBUG=true \
 LMNR_DEBUG_REPLAY_TRACE_ID=<trace-id> \
-LMNR_DEBUG_CACHE_UNTIL=<n-or-span-id> \
+LMNR_DEBUG_CACHE_UNTIL=<span-id> \
 node my_agent.js
 ```
 
 Replaying up to *just before* the buggy call lets you re-run that one call live
 with your fix, over and over, without re-executing everything that led up to it
-— with the span-id form, pass the id of the call **before** the buggy one
-(inclusive semantics). Set the window *past* the change to validate that the
-rest of the loop now behaves. Each replayed iteration produces a new trace
-under the same session, so attempts compare side by side in the UI (and you
-should note each one — see step 2). Replayed traces can themselves be replay
-sources — their cached calls count as loop positions just like live ones.
+— pass the id of the call **before** the buggy one (inclusive semantics). Set
+the window *past* the change to validate that the rest of the loop now behaves.
+Each replayed iteration produces a new trace under the same session, so
+attempts compare side by side in the UI (and you should note each one — see
+step 2). Replayed traces can themselves be replay sources — their cached calls
+count as loop positions just like live ones.
 
 ## What to keep in mind
 
