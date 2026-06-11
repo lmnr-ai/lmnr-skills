@@ -1,38 +1,35 @@
 # laminar-skill
 
-Skills for Laminar: quick demos, codebase instrumentation, and the SQL Query API.
+A single, unified skill for [Laminar](https://docs.laminar.sh): instrument code with tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools.
 
 ## Install
 
 ```bash
-npx skills add lmnr-ai/laminar-skills --skill laminar-quickstart-trace
-npx skills add lmnr-ai/laminar-skills --skill laminar-instrument-codebase
-npx skills add lmnr-ai/laminar-skills --skill laminar-migrate-observability
-npx skills add lmnr-ai/laminar-skills --skill query-api
+npx skills add lmnr-ai/laminar-skills --skill laminar
 ```
 
 ## Example prompts
 
-- "Show me a Laminar example that produces a trace in under 2 minutes."
+- "Set up Laminar in this repo."
 - "Instrument this codebase with Laminar and choose the most useful spans."
-- "Use the Laminar Query API to find the slowest spans in the last 24 hours."
+- "Show me a Laminar example that produces a trace in under 2 minutes."
+- "Use the Laminar CLI to query the slowest spans in the last 24 hours."
+- "Migrate our Langfuse tracing to Laminar."
+- "Debug my agent with the Laminar debugger: record a run, find the bad LLM call, and replay up to it."
 
 ## Contents
 
-- `skills/laminar-quickstart-trace/SKILL.md`
-- `skills/laminar-quickstart-trace/references/quickstart-node.md`
-- `skills/laminar-quickstart-trace/references/quickstart-python.md`
-- `skills/laminar-quickstart-trace/references/troubleshooting.md`
-- `skills/laminar-instrument-codebase/SKILL.md`
-- `skills/laminar-instrument-codebase/references/function-selection.md`
-- `skills/laminar-instrument-codebase/references/ts-instrumentation.md`
-- `skills/laminar-instrument-codebase/references/python-instrumentation.md`
-- `skills/laminar-migrate-observability/SKILL.md`
-- `skills/laminar-migrate-observability/references/migration-mapping.md`
-- `skills/laminar-migrate-observability/references/otel-exporter.md`
-- `skills/query-api/SKILL.md`
-- `skills/query-api/references/laminar-query-api.md`
+The skill routes from a single `SKILL.md` to focused, one-level-deep reference files:
+
+- `skills/laminar/SKILL.md` — mental model, workflow, and task router
+- `skills/laminar/references/instrumentation-typescript.md` — TypeScript/JS/Next.js setup, spans, context, privacy
+- `skills/laminar/references/instrumentation-python.md` — Python setup, spans, context, privacy
+- `skills/laminar/references/quickstart.md` — minimal demo trace (Node + Python) and troubleshooting
+- `skills/laminar/references/cli.md` — `lmnr-cli` and the SDK-bundled `lmnr` CLI (sql, datasets, dev, eval)
+- `skills/laminar/references/sql-query-api.md` — SQL Query API and ClickHouse query patterns
+- `skills/laminar/references/migration.md` — migrate from Langfuse, LangSmith, Helicone, or OpenTelemetry
+- `skills/laminar/references/debugging.md` — agent debugger: record under `LMNR_DEBUG`, inspect with SQL, replay cached LLM calls, annotate sessions
 
 ## Notes
 
-- You will need a Laminar project API key to send traces or execute queries.
+- You will need a Laminar project API key (dashboard → **Settings → Project API Keys**) to send traces or execute queries.
