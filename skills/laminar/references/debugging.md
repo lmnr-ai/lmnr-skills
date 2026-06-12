@@ -159,7 +159,7 @@ node my_agent.js
 Calls inside the cache window return their recorded responses instantly; past it, the run goes live. **Replay needs both vars** — with either unset, the run is fully live.
 
 - **`LMNR_DEBUG_REPLAY_TRACE_ID`** is the recorded trace to pull cached responses from (a `trace_id` from a prior run).
-- **`LMNR_DEBUG_CACHE_UNTIL` is a span id** — replay *through* that span, inclusive: the named call comes from cache, the next one runs live. Accepts the span's full UUID, the last two UUID groups, the 16-hex OTel id, or any hex suffix — whatever you copied from SQL or the UI. (There is no numeric-count form.) A value that isn't span-id-shaped is ignored with a warning; a well-formed id that isn't a loop LLM call runs fully live.
+- **`LMNR_DEBUG_CACHE_UNTIL` is a span id** — replay *through* that span, inclusive: the named call comes from cache, the next one runs live. Accepts the span's full UUID, the last two UUID groups, the 16-hex OTel id, or any hex suffix — whatever you copied from SQL or the UI. (There is no numeric-count form.) A value that isn't span-id-shaped is ignored with a warning; a well-formed id that isn't a loop LLM call (an `LLM` or `CACHED` span — cached calls from a replay source count too) runs fully live.
 
 **Cache key: `(trace_id, hash_of_inputs)`, and the hash excludes the system prompt.** So you can freely rewrite the system prompt between replay runs and still hit the cache. Changing anything else (first user message, tool outputs, model params) changes the hash and misses — and once one call misses, the run goes live for everything after it in that iteration.
 
