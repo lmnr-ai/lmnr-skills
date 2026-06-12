@@ -163,6 +163,33 @@ Calls inside the cache window return their recorded responses instantly; past it
 
 **Cache key: `(trace_id, hash_of_inputs)`, and the hash excludes the system prompt.** So you can freely rewrite the system prompt between replay runs and still hit the cache. Changing anything else (first user message, tool outputs, model params) changes the hash and misses — and once one call misses, the run goes live for everything after it in that iteration.
 
+### Special case: AI SDK (TypeScript)
+
+For the [Vercel AI SDK](https://laminar.sh/docs/tracing/integrations/vercel-ai-sdk), caching needs one extra step on top of the normal telemetry integration: wrap each model with `wrapLanguageModel`. The wrapper is what hashes the span input and consults the Laminar backend for a cached response. Without it, your AI SDK calls are still traced and appear in the transcript, but they will **not** serve from cache during replay.
+
+```typescript
+import { generateText, gateway } from 'ai';
+// or
+import { anthropic } from '@ai-sdk/anthropic';
+import { Laminar, wrapLanguageModel, getTracer } from '@lmnr-ai/lmnr';
+
+Laminar.initialize();
+
+await generateText({
+  // this line is what enables debugger caching
+  model: wrapLanguageModel(gateway('openai/gpt-5')),
+  // or
+  // model: wrapLanguageModel(anthropic('claude-opus-4-5')),
+  // ... other params
+
+  // general Laminar telemetry integration
+  experimental_telemetry: {
+    isEnabled: true,
+    tracer: getTracer(),
+  },
+});
+```
+
 **The rhythm:** replay up to *just before* the suspect call → fix it → re-run that one call live, repeatedly. Then push the boundary *past* the change to validate the rest of the loop. Each iteration is a new trace under the same session, so attempts compare side by side — note each one. Replayed traces can themselves be replay sources.
 
 Rejoining a session is **not** replay — the file's prior `trace_id` is never auto-replayed. Replay only happens when you set the two vars above (or the file already has both armed).
