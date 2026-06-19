@@ -59,15 +59,22 @@ This is your responsibility to the human, and it is mandatory. A session of unla
 npx lmnr-cli debug session set-name "Fix report length + search tool"
 ```
 
-**Write a pre-run note** before launching the child agent, via `LMNR_TRACE_METADATA`. It appears in the UI the moment the trace lands, giving the human a real-time view of your intent:
+**Write a pre-run note** before launching the child agent. It appears in the UI the moment the trace lands, giving the human a real-time view of your intent. Write the note as raw markdown to a file and point `LMNR_DEBUG_RUN_NOTES_FILE` at it — no JSON, no escaping, no hand-stringifying:
 
 ```bash
+cat > .lmnr/run-note.md <<'EOF'
+## What I am about to test
+Replaying up to the search call, running synthesis live with the new length cap.
+EOF
+
 LMNR_DEBUG=1 \
-LMNR_TRACE_METADATA='{"rollout.note": "## What I am about to test\nReplaying up to the search call, running synthesis live with the new length cap.\n\n"}' \
+LMNR_DEBUG_RUN_NOTES_FILE=.lmnr/run-note.md \
 node my_agent.js
 ```
 
-`LMNR_TRACE_METADATA` is a stringified JSON object with key `rollout.note` whose value is markdown. **End the value with `\n\n`** so later appended notes start on a clean paragraph.
+A file is the reliable path: write normal markdown, point the var at it. For a one-liner, set the note inline with `LMNR_DEBUG_RUN_NOTES="## Testing the length cap"` instead. Both vars are only read when `LMNR_DEBUG` is on, and the file wins when both are set. The SDK reads the content and stamps it on the trace's `rollout.note` metadata key for you.
+
+Prefer the file/inline vars over hand-building JSON. If you do set the note through `LMNR_TRACE_METADATA` directly, it is a stringified JSON object with key `rollout.note` whose value is markdown — and the `LMNR_DEBUG_RUN_NOTES*` vars override that key when both are present.
 
 **Append a post-run note** after the trace completes — what it actually showed, what you observed, what to check next (~20–200 words of well-structured markdown):
 
