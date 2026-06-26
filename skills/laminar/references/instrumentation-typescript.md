@@ -79,7 +79,24 @@ export async function register() {
 
 ## Vercel AI SDK
 
-AI SDK instrumentation is **manual**: pass the Laminar tracer to `experimental_telemetry` on each call so model/tool spans attach to the right trace.
+The AI SDK changed its telemetry API in **v7**. Check the installed `ai` version (`package.json`) and pick the matching wiring.
+
+**AI SDK v7 (`ai@7+`):** register Laminar once at startup; every `generate*` / `stream*` / `embed` call is then traced with no per-call config. Use the AI SDK's native `registerTelemetry` with Laminar's integration class, or Laminar's all-in-one `registerAiSdkTelemetry()` (same effect, no `ai` import — handy when you want to register before the AI SDK loads). Both initialize Laminar for you; pass `laminarOptions` (e.g. `projectApiKey`, self-hosted `baseUrl`) to configure it without a separate `Laminar.initialize()` call.
+
+```ts
+import { registerTelemetry } from 'ai';
+import { LaminarAiSdkTelemetry } from '@lmnr-ai/lmnr';
+
+registerTelemetry(new LaminarAiSdkTelemetry());
+
+// — or, equivalently, without importing from 'ai':
+// import { registerAiSdkTelemetry } from '@lmnr-ai/lmnr';
+// registerAiSdkTelemetry();
+```
+
+Then call the SDK as usual — no `experimental_telemetry`. Skip one call with `telemetry: { isEnabled: false }`; name a span or attach data with `telemetry: { functionId, metadata }`.
+
+**AI SDK v5 / v6 (`ai@5`, `ai@6`):** instrumentation is **manual** — pass the Laminar tracer to `experimental_telemetry` on each call so model/tool spans attach to the right trace.
 
 ```ts
 import { getTracer } from '@lmnr-ai/lmnr';
@@ -96,7 +113,7 @@ await generateText({
 });
 ```
 
-`experimental_telemetry` is sufficient on its own — the AI SDK call emits its own span with nested LLM and tool spans. **Do not wrap the call in `observe`** just to get a root span; that adds a redundant layer. Reach for `observe` only to capture your own orchestration steps *outside* the AI SDK call (see [Manual spans](#manual-spans-with-observe)). To attach trace context, pass it through `experimental_telemetry.metadata`, or set it with `Laminar.setTraceUserId` / `setTraceSessionId` from an enclosing span you already have — not by adding one solely to hold these values.
+The AI SDK call emits its own span with nested LLM and tool spans, so **do not wrap the call in `observe`** just to get a root span; that adds a redundant layer. Reach for `observe` only to capture your own orchestration steps *outside* the AI SDK call (see [Manual spans](#manual-spans-with-observe)). To attach trace context, set it with `Laminar.setTraceUserId` / `setTraceSessionId` from an enclosing span you already have (or, on v7, pass it through `telemetry.metadata` / on v5–v6 `experimental_telemetry.metadata`) — not by adding a span solely to hold these values.
 
 ## Coexisting with another OpenTelemetry SDK
 
