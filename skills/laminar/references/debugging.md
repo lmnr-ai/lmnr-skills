@@ -178,9 +178,12 @@ For the [Vercel AI SDK](https://laminar.sh/docs/tracing/integrations/vercel-ai-s
 import { generateText, gateway } from 'ai';
 // or
 import { anthropic } from '@ai-sdk/anthropic';
-import { Laminar, wrapLanguageModel, getTracer } from '@lmnr-ai/lmnr';
+import { registerAiSdkTelemetry, wrapLanguageModel } from '@lmnr-ai/lmnr';
 
-Laminar.initialize();
+// AI SDK v7: register telemetry once at startup (this initializes Laminar too).
+// On v5/v6 instead call Laminar.initialize() and pass
+// experimental_telemetry: { isEnabled: true, tracer: getTracer() } on the call.
+registerAiSdkTelemetry();
 
 await generateText({
   // this line is what enables debugger caching
@@ -188,12 +191,6 @@ await generateText({
   // or
   // model: wrapLanguageModel(anthropic('claude-opus-4-5')),
   // ... other params
-
-  // general Laminar telemetry integration
-  experimental_telemetry: {
-    isEnabled: true,
-    tracer: getTracer(),
-  },
 });
 ```
 
