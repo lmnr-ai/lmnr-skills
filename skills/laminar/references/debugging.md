@@ -6,14 +6,14 @@ Use when building, testing, or debugging an LLM agent instrumented with Laminar.
 
 You are the **parent agent**: the coding agent doing the building. The **child agent** is the AI agent you are working on. You run the child agent under the debugger, read what happened, change its code or prompts, and run it again.
 
-You own one thing the human relies on that the tooling can't do for you: **making the debug session legible.** You name the session and write a markdown note on every trace, because the human reads those notes — not the raw spans — to understand what you did and why. This is not optional. Treat it as part of every run.
+You own one thing the human relies on that the tooling can't do for you: **making the debug session legible.** You name the session and annotate it with markdown notes, because the human reads those notes — not the raw spans — to understand what you did and why. This is not optional. Treat it as part of every run.
 
 ## The core loop
 
 1. **Record** — run the child agent under the debugger to capture a trace.
 2. **Inspect** — query the trace to find what went wrong and where.
 3. **Replay + edit** — change the code/prompt, then re-run replaying the cached calls up to the point of interest and running live past it.
-4. **Annotate throughout** — name the session, write a note on every trace.
+4. **Annotate throughout** — name the session, and add notes as you go.
 
 Each iteration only pays for the calls that actually changed.
 
@@ -32,11 +32,15 @@ LMNR_DEBUG=1 python my_agent.py        # or node my_agent.js, or whatever the ru
 
 That's the whole setup. The run exports its spans as a trace and registers a debug **session** — a named group that every subsequent run joins automatically. Truthy values for `LMNR_DEBUG` are `true`, `1`, `yes`, `on`.
 
+A session is a **timeline of blocks**: one block per trace, one per eval run, plus free-standing **text notes** you add. That's the unit the human reads.
+
 **The session is persisted for you in `.lmnr/debug-session.json`.** You do not carry ids between runs by hand:
 
-- The first debug run mints a session and writes the file. Every later `LMNR_DEBUG=1` run in the project **rejoins that same session silently** — so your traces stay grouped in the UI with zero extra flags.
+- The first debug run mints a session and writes the file. Every later `LMNR_DEBUG=1` run in the project **rejoins that same session silently** — so your runs stay grouped in the UI with zero extra flags.
 - The file is found by walking **up** from the current directory to the nearest one that has it (same rule as `.lmnr/project.json`), so runs from a subdirectory still join the project's session.
-- The file holds `session_id`, the last run's `trace_id`, `replay_trace_id`, `cache_until`, `debugger_url`, and `started_at`. The CLI commands below read it, so they default to "the session/trace you're working on" without arguments.
+- The file holds `session_id`, the last run's `trace_id`, `replay_trace_id`, `cache_until`, `debugger_url`, and `started_at`. **`session_id` is the single source of truth** — every session command reads it, so they default to "the session you're working on" without arguments.
+
+**Evals join the same session too.** Running an eval under debug — `LMNR_DEBUG=1 npx lmnr eval evals/foo.eval.ts` — stamps the same `rollout.session_id` and lands in the session as an `evaluation` block, right next to your trace runs and notes. One session can interleave agent runs, eval runs, and notes; there is no separate eval command or eval-session file.
 
 To start a clean, named session at the top of an investigation, mint one explicitly (resets the file and opens the debugger page):
 
@@ -49,9 +53,9 @@ You rarely need anything else. The two escape hatches, for when you do:
 - `LMNR_DEBUG_SESSION_ID=<id>` — pin a specific session, overriding the file.
 - Each run prints one `LMNR_DEBUG_RUN ` line of JSON to the console (the same record as the file) if you want to capture ids programmatically with `grep`/`jq`.
 
-## 2. Name the session and note every trace
+## 2. Name the session and annotate it
 
-This is your responsibility to the human, and it is mandatory. A session of unlabeled traces is unreadable. The CLI commands default the id from `.lmnr/debug-session.json`, so you normally pass only the payload (the name, the note); an explicit id is always a `--session-id` / `--trace-id` **flag**, never a positional.
+This is your responsibility to the human, and it is mandatory. A session of unlabeled runs is unreadable. The commands default the session id from `.lmnr/debug-session.json`, so you normally pass only the payload (the name, the note); an explicit id is always a `--session-id` **flag**, never a positional.
 
 **Name the session once**, describing the investigation:
 
@@ -59,7 +63,11 @@ This is your responsibility to the human, and it is mandatory. A session of unla
 npx lmnr-cli debug session set-name "Fix report length + search tool"
 ```
 
-**Write a pre-run note** before launching the child agent. It appears in the UI the moment the trace lands, giving the human a real-time view of your intent. Write the note as raw markdown to a file and point `LMNR_DEBUG_RUN_NOTES_FILE` at it — no JSON, no escaping, no hand-stringifying:
+There are two kinds of notes, and you use both. A **pre-run note** captions a run's own block with your intent; a **text note** is a standalone entry you drop into the session timeline for observations.
+
+### Pre-run note — intent, glued to the run's block
+
+Write a note **before** launching and it rides along on that run's own trace (or eval) block, so the block is captioned with what you were trying the moment it lands in the UI. Write raw markdown to a file and point `LMNR_DEBUG_RUN_NOTES_FILE` at it — no JSON, no escaping, no hand-stringifying:
 
 ```bash
 cat > .lmnr/run-note.md <<'EOF'
@@ -72,37 +80,39 @@ LMNR_DEBUG_RUN_NOTES_FILE=.lmnr/run-note.md \
 node my_agent.js
 ```
 
-A file is the reliable path: write normal markdown, point the var at it. For a one-liner, set the note inline with `LMNR_DEBUG_RUN_NOTES="## Testing the length cap"` instead. Both vars are only read when `LMNR_DEBUG` is on, and the file wins when both are set. The SDK reads the content and stamps it on the trace's `rollout.note` metadata key for you.
+A file is the reliable path: write normal markdown, point the var at it. For a one-liner, set it inline with `LMNR_DEBUG_RUN_NOTES="## Testing the length cap"` instead. Both vars are only read when `LMNR_DEBUG` is on, and the file wins when both are set. The SDK stamps the content on the run's `rollout.note` metadata for you, and the backend folds it onto that trace/eval block. (Eval runs use this same mechanism.)
 
 Prefer the file/inline vars over hand-building JSON. If you do set the note through `LMNR_TRACE_METADATA` directly, it is a stringified JSON object with key `rollout.note` whose value is markdown — and the `LMNR_DEBUG_RUN_NOTES*` vars override that key when both are present.
 
-**Append a post-run note** after the trace completes — what it actually showed, what you observed, what to check next (~20–200 words of well-structured markdown):
+### Text note — observations, a standalone block in the timeline
+
+After a run, record what it actually showed — what you observed, what to check next (~20–200 words of well-structured markdown) — as its own text block on the session:
 
 ```bash
-npx lmnr-cli trace append-note "## What this run showed
+npx lmnr-cli debug session add-note "## What this run showed
 The <span id='<spanId>' name='synthesis call' /> now returns ~180 words (was ~600).
 Length cap is working. Next: check that citations are still intact."
 ```
 
-Notes are **append-only** — each call adds a paragraph to the trace's existing note. Never re-send the whole note.
+Each `add-note` call adds a **new text block**, interleaved by time with the trace/eval blocks — it is keyed to the session, not attached to any one run. It goes to the session in `.lmnr/debug-session.json` (override with `--session-id`). This is the unified note path: it works the same whether the session's runs are agent traces or evals.
 
-**Span chips.** Embed a span tag in any note and the UI renders a clickable chip that opens that span:
+**Span chips.** Embed a span tag in any note (pre-run or text block) and the UI renders a clickable chip that opens that span:
 
 ```text
 <span id='<spanId>' name='the synthesis call' />
 ```
 
-- `id` is the span's UUID (the `span_id` from the SQL below); the span must belong to the trace the note is attached to.
+- `id` is the span's UUID (the `span_id` from the SQL below); the span must belong to a trace in this session.
 - `name` is the chip label (short free text).
 - Optional `reference_text='…'` adds a muted inline preview: `<span id='<spanId>' name='synthesis' reference_text='~180 words, was ~600' />`.
 
-**Re-orient after a context reset** by dumping every note in the session, oldest first:
+**Re-orient after a context reset** by dumping the whole session timeline, oldest first:
 
 ```bash
 npx lmnr-cli debug session summary          # add --json for structured output
 ```
 
-Each block is a trace's note followed by a `<trace id="…" end-time="…"/>` tag you can feed into the SQL below. To reopen the session in the browser (works offline): `npx lmnr-cli debug session open`.
+Each entry is a `<trace id="…"/>` tag, an `<evaluation id="…"/>` tag, or a text note — the same blocks the UI shows, in order. Feed a trace id into the SQL below. To reopen the session in the browser (works offline): `npx lmnr-cli debug session open`.
 
 ## 3. Inspect the trace with SQL
 
