@@ -14,7 +14,7 @@ Same framing as the debugger: you're the **parent agent**, the **child agent** i
 
 1. **Find the failure mode** — `signal_events`, grouped by cluster (§1).
 2. **Freeze a dataset** — pull failing traces' inputs once. Reuse every iteration (§2).
-3. **Write the eval** — executor calls the child agent; evaluators invert the signal; `groupName` = cluster id (§3).
+3. **Write the eval** — executor calls the child agent; evaluators invert the signal; set a per-iteration `name` and a per-session `groupName` (§3).
 4. **Write pre-run note + launch** — `## Change` / `## Why` in `note.md`, edit the child agent (one thing), then run eval with note stamped as `rollout.note` (§4, §7).
 5. **Read cheaply** — scores → `summary` of failing rows → full trace, in that order (§5).
 6. **Diff** — this run vs previous run in the same group (§6).
@@ -25,16 +25,16 @@ Same framing as the debugger: you're the **parent agent**, the **child agent** i
 
 An eval run carries both, and neither derives from the other:
 
-- **`group_id` = the cluster id** (eval's `groupName`). **Durable.** Same value across weeks and sessions, so the progression chart accumulates and regressions show over time. This is the eval's real identity.
-- **`rollout.session_id`** (debugger's key). **Ephemeral.** Ties the run to *this* investigation's timeline; resets when you start a new debug session.
+- **`group_id`** (eval's `groupName`) — a name for **this debug session's** iterations, chosen when you open the session (align it with the session's `set-name`). Keep it FIXED across every iteration in the session so the progression chart accumulates run-over-run; start a **new** group whenever you `debug session new`. It is NOT the cluster id.
+- **`rollout.session_id`** (debugger's key) — the debug session id from `.lmnr/debug-session.json`. Ties the run's blocks to the session timeline.
 
-Key evals off the session and you lose cross-session progression. Stamp both: cluster id is identity, session id is "show it here."
+Both are scoped to the current session but feed different systems: `group_id` groups the eval runs for the progression chart; `session_id` places the run's `evaluation` / `trace` blocks in the session view. Keep the group name fixed within a session (or the run-over-run diff is meaningless) and pick a fresh one per session.
 
 ## How the run lands in the session
 
 A debug session is a timeline of **blocks** (trace / evaluation / text). An eval run joins it by carrying `rollout.session_id` in the **evaluation's** metadata (`evaluations.metadata`): the backend writes one `evaluation` block for the run, and its eval traces also carry `rollout.session_id` and become `trace` blocks. `debug session summary` reads these blocks back (it does NOT scan `traces.metadata`). The session id must land on `evaluations.metadata` — not only the datapoint `metadata` field, which is a different column.
 
-**TS SDK:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` on the run automatically, resolving the session from `.lmnr/debug-session.json` exactly like a traced run (env `LMNR_DEBUG_SESSION_ID` → file → freshly minted). It also reads `LMNR_DEBUG_RUN_NOTES_FILE` and writes its contents to `evaluations.metadata.rollout.note` — a single pre-run intent note that rides on the run's `evaluation` block (one blob per run, NOT per datapoint).
+**TS SDK:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` on the run automatically, resolving the session from `.lmnr/debug-session.json` exactly like a traced run (env `LMNR_DEBUG_SESSION_ID` → file → freshly minted). It also reads `LMNR_DEBUG_RUN_NOTES_FILE` and stamps that pre-run note as `rollout.note` on the run's spans, so it shows on the eval's `trace` blocks (one blob per run, not per datapoint). Your durable per-run note, though, is the post-run `add-note` `text` block (§7) — that's where the why / observations / next plan live.
 
 **Python SDK:** no `LMNR_DEBUG` support. Create the session first with `npx lmnr-cli debug session new` (writes `.lmnr/debug-session.json` and registers it), read the id from that file, and pass `evaluate(metadata={"rollout.session_id": <id>, "rollout.note": Path("note.md").read_text()})`. Same destination column (`evaluations.metadata`), just wired by hand.
 
@@ -55,7 +55,7 @@ A debug session is a timeline of **blocks** (trace / evaluation / text). An eval
 - **Always filter by `start_time` / `timestamp`** (ClickHouse scans the whole table otherwise).
 - **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `traces`, `spans`, `signal_events`, `signal_events_all`, `datasets` are queryable; `evaluations`, `debugger_sessions` are NOT (inspect via UI or direct DB).
 - **Avoid ClickHouse joins** — run two queries and combine ids in your own code.
-- **Freeze the dataset, change one thing per iteration, keep `groupName` stable** — or the diff is meaningless.
+- **Freeze the dataset, change one thing per iteration, keep `groupName` fixed for the session** (bump `name` per run) — or the diff is meaningless.
 - **Adapt the aggregate SQL to your scorers.** If the eval has multiple evaluators (classification / severity / cost), don't copy-paste a single-scorer template. `cost`-style scorers that record dollar amounts need their own comparison; other scorers each need their own `avg(simpleJSONExtractFloat(scores, '<name>'))` line.
 
 ---
@@ -100,14 +100,14 @@ npx lmnr-cli sql query "
     metadata: { source_trace_id: .source_trace_id, cluster_id: "<cluster_id>" }
   }' > data.jsonl
 
-npx lmnr-cli dataset create cluster-<cluster_id>-failures data.jsonl
+npx lmnr-cli dataset create <dataset-name> data.jsonl   # name it for what you're testing, e.g. report-quality-failures — no need to tie it to the cluster id
 ```
 
 Targets are usually omitted: production traces have no gold label, so the evaluator checks a *property* (did the failure recur?), not exact match. **Build the dataset once and reuse it by name every iteration.**
 
 ## 3. Write the eval
 
-Executor runs the child agent. Invert the signal into a pass/fail evaluator. `groupName` = the cluster id, stable across every iteration:
+Executor runs the child agent. Invert the signal into a pass/fail evaluator. Give the run a descriptive per-iteration `name` and a per-session `groupName` (see "Two grouping keys"):
 
 ```ts
 import { evaluate, LaminarDataset } from '@lmnr-ai/lmnr';
@@ -115,16 +115,19 @@ import { runAgent } from '../src/agent';
 import { detectsLoop } from './checks';
 
 evaluate({
-  data: new LaminarDataset('cluster-<cluster_id>-failures'),
+  data: new LaminarDataset('<dataset-name>'),
   executor: async (data) => runAgent(data),
   evaluators: {
     not_stuck_loop: (output) => (detectsLoop(output) ? 0 : 1),
   },
-  groupName: 'cluster-<cluster_id>',
+  // Per-iteration label — shows on the <evaluation> block in the session timeline.
+  name: 'length-cap v2',
+  // Per-session group — FIXED across this session's iterations; new one per session.
+  groupName: 'report-quality-2026-07-03',
 });
 ```
 
-Python is equivalent: `from lmnr import evaluate, LaminarDataset`, with `executor=`, `evaluators={...}`, `group_name=`.
+Bump `name` each iteration so every `evaluation` block is legible in the timeline; keep `groupName` fixed for the whole session so the progression chart lines the runs up. Python is equivalent: `from lmnr import evaluate, LaminarDataset`, with `executor=`, `evaluators={...}`, `name=`, `group_name=`.
 
 ## 4. Launch the run
 
@@ -142,7 +145,7 @@ Then launch:
 
 ```bash
 # TS
-LMNR_DEBUG=1 LMNR_DEBUG_RUN_NOTES_FILE=note.md npx lmnr eval evals/cluster-<cluster_id>.eval.ts
+LMNR_DEBUG=1 LMNR_DEBUG_RUN_NOTES_FILE=note.md npx lmnr eval evals/<eval-file>.eval.ts
 # Python: wire it yourself into evaluate(metadata=...) — the env var is TS-only.
 ```
 
@@ -189,7 +192,7 @@ npx lmnr-cli sql query "
          avg(simpleJSONExtractFloat(scores, 'not_stuck_loop')) AS score,
          countIf(simpleJSONExtractFloat(scores, 'not_stuck_loop') < 1) AS failures
   FROM evaluation_datapoints
-  WHERE group_id = 'cluster-<cluster_id>'
+  WHERE group_id = '<your session group>'
   GROUP BY evaluation_id ORDER BY run_at DESC LIMIT 2" --json
 ```
 
@@ -197,7 +200,7 @@ Improvement = score up / failures down. Also compare failing-row summaries run-o
 
 ## 7. Journal the run
 
-The note is the loop's changelog — the reasoning artifact the human reads weeks later. So it must answer: (1) what observation from the previous iteration's summaries motivated this edit, (2) why this specific change should move the failing bucket without breaking others, (3) what the agent now looks at in the trace it wasn't before. `## Change` and `## Why` are the minimum shape; expand freely to make the intent legible. The `## Change`/`## Why` half rode on the run's `evaluation` block via the pre-run `rollout.note` (§4); after you read the scores you append `## Result` and drop the completed note into the session timeline.
+The note is the loop's changelog — the reasoning artifact the human reads later. Keep it simple and honest: **why** you made this change (the hypothesis), **what you observed** in the results, and **what's next**. Don't force a rigid template — a couple of clear sentences under `## Change` / `## Why` (before the run) and `## Result` (after you read the scores) is plenty. The `## Change` / `## Why` half can ride on the run as the pre-run `rollout.note` (§4); the completed note — carrying your observations and next plan — is what you drop into the session as a `text` block below.
 
 **Post-run: append `## Result`** to the same file:
 
@@ -233,7 +236,7 @@ Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql
 
 - **`signal_events`** — `trace_id`, `signal_id`, `summary`, `payload` (JSON string), `clusters` `Array(UUID)` (non-L0; `signal_events_all` for L0), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`.
 - **`traces`** — `id`, `metadata` (`rollout.session_id` / `rollout.note` for debug runs), `root_span_input` / `root_span_output` (parse as JSON, fall back to string), `status`, `start_time`.
-- **`evaluation_datapoints`** — `evaluation_id`, `group_id` (= cluster id), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `summary`, `trace_id`, `trace_metadata` (mirrors trace metadata — `rollout.session_id` lands here too), `created_at`.
+- **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `summary`, `trace_id`, `trace_metadata` (mirrors trace metadata — `rollout.session_id` lands here too), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 
 JSON columns are guaranteed valid objects — use `simpleJSONExtract*` (fast) or `JSONExtract*` (nested) in-query. `input` / `output` / `root_span_*` may be raw strings; try JSON, fall back. Use `ILIKE` on `input` / `output`.
