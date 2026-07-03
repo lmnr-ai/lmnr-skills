@@ -32,7 +32,7 @@ Both are scoped to the current session but feed different systems: `group_id` gr
 
 ## How the run lands in the session
 
-A debug session is a timeline of **blocks** (trace / evaluation / text). An eval run joins it by carrying `rollout.session_id` in the **evaluation's** metadata (`evaluations.metadata`): the backend writes one `evaluation` block for the run, and its eval traces also carry `rollout.session_id` and become `trace` blocks. `debug session summary` reads these blocks back (it does NOT scan `traces.metadata`). The session id must land on `evaluations.metadata` — not only the datapoint `metadata` field, which is a different column.
+A debug session is a timeline of **blocks** (trace / evaluation / text). An eval run joins it by carrying `rollout.session_id` in the **evaluation's** metadata (`evaluations.metadata`), so the backend writes **one `evaluation` block** for the whole run. The per-datapoint eval traces deliberately do NOT carry `rollout.session_id` (the SDK stamps only the evaluation entity, not the spans), so an eval shows as that single `evaluation` block — not a wall of N `trace` blocks. `debug session summary` reads these blocks back (it does NOT scan `traces.metadata`). The session id must land on `evaluations.metadata`, not the datapoint `metadata` field (a different column).
 
 **TS SDK:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` on the run automatically, resolving the session from `.lmnr/debug-session.json` exactly like a traced run (env `LMNR_DEBUG_SESSION_ID` → file → freshly minted). It also reads `LMNR_DEBUG_RUN_NOTES_FILE` and stamps that pre-run note as `rollout.note` on the run's spans, so it shows on the eval's `trace` blocks (one blob per run, not per datapoint). Your durable per-run note, though, is the post-run `add-note` `text` block (§7) — that's where the why / observations / next plan live.
 
@@ -236,7 +236,7 @@ Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql
 
 - **`signal_events`** — `trace_id`, `signal_id`, `summary`, `payload` (JSON string), `clusters` `Array(UUID)` (non-L0; `signal_events_all` for L0), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`.
 - **`traces`** — `id`, `metadata` (`rollout.session_id` / `rollout.note` for debug runs), `root_span_input` / `root_span_output` (parse as JSON, fall back to string), `status`, `start_time`.
-- **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `summary`, `trace_id`, `trace_metadata` (mirrors trace metadata — `rollout.session_id` lands here too), `created_at`.
+- **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `summary`, `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 
 JSON columns are guaranteed valid objects — use `simpleJSONExtract*` (fast) or `JSONExtract*` (nested) in-query. `input` / `output` / `root_span_*` may be raw strings; try JSON, fall back. Use `ILIKE` on `input` / `output`.
