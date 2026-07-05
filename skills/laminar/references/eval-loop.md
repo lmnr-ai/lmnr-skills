@@ -2,7 +2,7 @@
 
 Turn production failures into a measurable fix-and-verify loop: read what's breaking from clusters/signals, replay it as an eval against the agent you're editing, and iterate until the failure mode clears. **This runs inside a debug session** — each iteration runs the eval under `LMNR_DEBUG`, so it lands as one `evaluation` block in the same session timeline as your debugger work. Read [debugging.md](debugging.md) first; this builds on it and reuses its session + note machinery.
 
-**Document as you go.** Under the debug flag the session becomes a transcript the human reads and explores later. Drop a note when you **open the session** (what you're tuning, the baseline) and **after every run** (what moved, what's next) — that's what makes the loop legible. See §7.
+**Document as you go.** Under the debug flag the session becomes a transcript the human reads and explores later. Drop a note when you **open the session** (what you're tuning, the baseline), **before each run** (your intent), and **after it** (what moved, what's next) — that's what makes the loop legible. See §4 and §7.
 
 ## Your role
 
@@ -17,7 +17,7 @@ You're the **parent agent**; the **child agent** is what you're editing. You exe
 1. **Find the failure mode** — cluster `signal_events`, pick the cluster you're fixing (§1).
 2. **Freeze a dataset** — pull failing traces' inputs once, reuse every iteration (§2).
 3. **Write the eval** — executor calls the child; evaluators invert the signal; set a per-iteration `name` and a per-session `groupName` (§3).
-4. **Note intent + launch** — `## Change` / `## Why` in `note.md`, edit the child (one thing), run the eval (§4).
+4. **Note intent + launch** — `add-note` your `## Change` / `## Why`, edit the child (one thing), run the eval (§4).
 5. **Read cheaply** — scores first, then failing rows' inputs/outputs, then a full trace only if needed (§5).
 6. **Diff** — this run vs the previous run in the same group (§6).
 7. **Journal** — append `## Result`, drop it into the session as a note (§7).
@@ -34,7 +34,7 @@ An eval run carries both, and neither derives from the other:
 
 The eval carries `rollout.session_id` on the **evaluation's** metadata (`evaluations.metadata`), so the backend writes **one `evaluation` block** for the whole run. The per-datapoint eval traces deliberately do NOT carry it, so you get one block, not N trace blocks. `debug session summary` reads these blocks back.
 
-- **TS:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` (and `rollout.note` from `LMNR_DEBUG_RUN_NOTES_FILE`) automatically, resolving the session from `.lmnr/debug-session.json`.
+- **TS:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` automatically, resolving the session from `.lmnr/debug-session.json`.
 - **Python:** same loop — the one difference is you export `LMNR_DEBUG=1` in the environment first, then run your eval script.
 
 ## Prerequisites
@@ -46,7 +46,7 @@ The eval carries `rollout.session_id` on the **evaluation's** metadata (`evaluat
 
 ## Hard rules
 
-- **One note per run.** Pre-run intent on the run's `evaluation` block + one post-run `text` block via `add-note`. Never a note per datapoint.
+- **Journal each run, not each datapoint.** Two `add-note` blocks per iteration — intent before the run, result after — never one per datapoint.
 - **Always filter by `start_time` / `timestamp`** (ClickHouse scans the whole table otherwise).
 - **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `traces`, `spans`, `signal_events`, `signal_events_all`, `datasets` are queryable; `evaluations`, `debugger_sessions` are NOT (inspect via UI or direct DB).
 - **Freeze the dataset, change one thing per iteration, keep `groupName` fixed for the session** (bump `name` per run) — or the diff is meaningless.
@@ -125,20 +125,16 @@ Bump `name` each iteration so every `evaluation` block is legible; keep `groupNa
 
 ## 4. Launch the run
 
-**Pre-run note first.** Write `note.md` BEFORE launching — the harness reads it at launch time and stamps it on `rollout.note`. Appending `## Result` later updates the file on disk but does not retroactively update already-stamped run metadata.
+**Note your intent first**, as a session block, then launch the eval:
 
-```markdown
-## Change
+```bash
+npx lmnr-cli debug session add-note "## Change
 <one paragraph: file, lines, what you changed>
 
 ## Why
-<hypothesis: which failure pattern this should move, what tail you're compressing>
-```
+<hypothesis: which failure pattern this should move, what tail you're compressing>"
 
-Then launch:
-
-```bash
-LMNR_DEBUG=1 LMNR_DEBUG_RUN_NOTES_FILE=note.md npx lmnr eval evals/<eval-file>.eval.ts
+LMNR_DEBUG=1 npx lmnr eval evals/<eval-file>.eval.ts
 ```
 
 Grab the `evaluation_id` from the printed link.
@@ -192,23 +188,15 @@ Improvement = score up / failures down. Also compare failing rows run-over-run: 
 
 ## 7. Journal the run
 
-The note is the loop's changelog — the reasoning artifact the human reads later. Keep it honest: **why** you made this change (the hypothesis), **what you observed**, and **what's next**. The `## Change` / `## Why` half rides on the run as the pre-run `rollout.note` (§4); the completed note — with observations and next plan — goes into the session as a `text` block. Open the session with a note too (what you're tuning + baseline scores) so the transcript starts with context.
-
-**Post-run: append `## Result`** to the same file:
-
-```markdown
-## Result
-severity 0.733 -> 0.800 (+0.067), reasoning held, cost +$0.001. KEEP.
-Next: tighten the info floor — 3/6 remaining failures are target=warning, output=info.
-```
-
-Then add it to the session as a `text` block:
+The notes are the loop's changelog — the reasoning artifact the human reads later. Keep them honest: **why** you made this change (the intent note from §4) and, after reading the scores, **what you observed** and **what's next**. Add the result as a second session block:
 
 ```bash
-npx lmnr-cli debug session add-note "$(cat note.md)"
+npx lmnr-cli debug session add-note "## Result
+severity 0.733 -> 0.800 (+0.067), reasoning held, cost +\$0.001. KEEP.
+Next: tighten the info floor — 3/6 remaining failures are target=warning, output=info."
 ```
 
-Each `add-note` adds a new `text` block, interleaved by time with the run's `evaluation` blocks. `npx lmnr-cli debug session summary` dumps the whole timeline oldest-first — the human's changelog.
+Each `add-note` adds a new block, interleaved by time with the run's `evaluation` blocks. `npx lmnr-cli debug session summary` dumps the whole timeline oldest-first — the human's changelog.
 
 **Replay caching may not apply.** If the agent under test runs server-side (you POST inputs to an endpoint), there's nothing local to cache — you get the session + journal layer, not replay. The per-iteration cost lever there is dataset size.
 
@@ -223,7 +211,7 @@ Stop when, on the frozen dataset: target dimension ≥ the user's threshold **an
 Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql-editor#table-schemas>. Loop-relevant columns:
 
 - **`signal_events`** — `trace_id`, `signal_id`, `summary`, `payload` (JSON string), `clusters` `Array(UUID)` (non-L0; `signal_events_all` for L0), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`.
-- **`traces`** — `id`, `metadata` (`rollout.session_id` / `rollout.note` for debug runs), `root_span_input` / `root_span_output` (parse as JSON, fall back to string), `status`, `start_time`.
+- **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `root_span_input` / `root_span_output` (parse as JSON, fall back to string), `status`, `start_time`.
 - **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 

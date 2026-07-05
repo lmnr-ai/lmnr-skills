@@ -63,40 +63,24 @@ This is your responsibility to the human, and it is mandatory. A session of unla
 npx lmnr-cli debug session set-name "Fix report length + search tool"
 ```
 
-There are two kinds of notes, and you use both. A **pre-run note** captions a run's own block with your intent; a **text note** is a standalone entry you drop into the session timeline for observations.
-
-### Pre-run note — intent, glued to the run's block
-
-Write a note **before** launching and it rides along on that run's own trace (or eval) block, so the block is captioned with what you were trying the moment it lands in the UI. Write raw markdown to a file and point `LMNR_DEBUG_RUN_NOTES_FILE` at it — no JSON, no escaping, no hand-stringifying:
+**Notes are standalone blocks on the session timeline** — you add them with `debug session add-note`, separately from the runs. The rhythm is: drop a note **before** a run to state what you're about to try, launch the trace, then drop another **after** to record what it showed. Each call adds a new text block, interleaved by time with the trace/eval blocks and keyed to the session — never glued to any one trace:
 
 ```bash
-cat > .lmnr/run-note.md <<'EOF'
-## What I am about to test
-Replaying up to the search call, running synthesis live with the new length cap.
-EOF
+# Before the run — state your intent, then launch the trace.
+npx lmnr-cli debug session add-note "## About to test
+Replaying up to the search call, running synthesis live with the new length cap."
 
-LMNR_DEBUG=1 \
-LMNR_DEBUG_RUN_NOTES_FILE=.lmnr/run-note.md \
-node my_agent.js
-```
+LMNR_DEBUG=1 node my_agent.js
 
-A file is the reliable path: write normal markdown, point the var at it. For a one-liner, set it inline with `LMNR_DEBUG_RUN_NOTES="## Testing the length cap"` instead. Both vars are only read when `LMNR_DEBUG` is on, and the file wins when both are set. The SDK stamps the content on the run's `rollout.note` metadata for you, and the backend folds it onto that trace/eval block. (Eval runs use this same mechanism.)
-
-Prefer the file/inline vars over hand-building JSON. If you do set the note through `LMNR_TRACE_METADATA` directly, it is a stringified JSON object with key `rollout.note` whose value is markdown — and the `LMNR_DEBUG_RUN_NOTES*` vars override that key when both are present.
-
-### Text note — observations, a standalone block in the timeline
-
-After a run, record what it actually showed — what you observed, what to check next (~20–200 words of well-structured markdown) — as its own text block on the session:
-
-```bash
+# After the run — record what it showed.
 npx lmnr-cli debug session add-note "## What this run showed
 The <span id='<spanId>' name='synthesis call' /> now returns ~180 words (was ~600).
 Length cap is working. Next: check that citations are still intact."
 ```
 
-Each `add-note` call adds a **new text block**, interleaved by time with the trace/eval blocks — it is keyed to the session, not attached to any one run. It goes to the session in `.lmnr/debug-session.json` (override with `--session-id`). This is the unified note path: it works the same whether the session's runs are agent traces or evals.
+Notes take raw markdown (~20–200 words) — no JSON, no escaping, no hand-stringifying. Each `add-note` appends a new block rather than overwriting, so the timeline reads as a running commentary. It goes to the session in `.lmnr/debug-session.json` (override with `--session-id`), and works the same whether the session's runs are agent traces or evals.
 
-**Span chips.** Embed a span tag in any note (pre-run or text block) and the UI renders a clickable chip that opens that span:
+**Span chips.** Embed a span tag in any note and the UI renders a clickable chip that opens that span:
 
 ```text
 <span id='<spanId>' name='the synthesis call' />
