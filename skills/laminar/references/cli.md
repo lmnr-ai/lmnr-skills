@@ -6,7 +6,7 @@
 
 - Auth (OAuth Device Flow) and self-hosted config
 - `lmnr-cli`: setup, login/logout, project, sql, dataset
-- Debugging & trace annotation (see [debugging.md](debugging.md))
+- Debugging & session annotation (see [debugging.md](debugging.md))
 - Agent-friendly output (`--json`)
 
 ### setup — one-shot onboarding
@@ -32,7 +32,7 @@ lmnr-cli login          # opens a browser to approve the device code
 
 Tokens are stored at `~/.config/lmnr/credentials.json` (mode `0600`, XDG-aware via `$XDG_CONFIG_HOME`; `%APPDATA%\lmnr` on Windows). It's a single signed-in user at a time — there is no project-API-key auth mode for the CLI and no multi-profile switching. Access tokens auto-refresh when within ~30s of expiry; if the session is revoked, the CLI errors and you re-run `lmnr-cli login`.
 
-**Project resolution** for the data commands (`sql`, `dataset`, `trace`, `debug`): `--project-id <id>` flag, else the `.lmnr/project.json` link written by `lmnr-cli setup`. With neither, the command errors and tells you to run `setup` or pass `--project-id`.
+**Project resolution** for the data commands (`sql`, `dataset`, `debug`): `--project-id <id>` flag, else the `.lmnr/project.json` link written by `lmnr-cli setup`. With neither, the command errors and tells you to run `setup` or pass `--project-id`.
 
 **The project API key is for your application's SDK, not the CLI.** `lmnr-cli setup` mints one and writes `LMNR_PROJECT_API_KEY=...` to `./.env` so your app can ingest traces. The CLI itself never reads it.
 
@@ -47,7 +47,7 @@ lmnr-cli sql schema --base-url http://localhost --port 8000
 
 Env equivalents: `LMNR_FRONTEND_URL` (default `https://www.laminar.sh`), `LMNR_BASE_URL` (default `https://api.lmnr.ai`), `LMNR_HTTP_PORT` (default `443`; use your self-hosted HTTP port). The CLI also auto-loads these `LMNR_*` keys from a `.env` / `.env.local` in the working directory.
 
-`--base-url` / `--port` / `--project-id` / `--json` belong to each command group (`sql`, `dataset`, `trace`, `debug`, `project`), **not** the top-level `lmnr-cli` — placing them before the subcommand fails with `unknown option`. Appending them to the end of the full command always works.
+`--base-url` / `--port` / `--project-id` / `--json` belong to each command group (`sql`, `dataset`, `debug`, `project`), **not** the top-level `lmnr-cli` — placing them before the subcommand fails with `unknown option`. Appending them to the end of the full command always works.
 
 ## `lmnr-cli`
 
@@ -105,6 +105,6 @@ lmnr-cli dataset create my-dataset data.jsonl -o my-dataset.jsonl  # create + wr
 
 `push`/`pull` take `-n <name>` or `--id <id>`; `create`/`push`/`pull` accept `--batch-size` (default 100) and `-r`/`--recursive`. Datapoint `id` fields drive versioning — never edit them in local files. Deleting a datapoint locally does not delete it in Laminar; `push` only adds new datapoint versions.
 
-## Debugging & trace annotation
+## Debugging & session annotation
 
-For debugging-related functionality in the CLI, see **[debugging.md](debugging.md)** for the full loop and how to use them.
+For debugging-related functionality in the CLI — `debug session new` / `set-name` / `add-note` / `summary` / `open` — see **[debugging.md](debugging.md)** for the full loop and how to use them.
