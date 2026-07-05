@@ -2,7 +2,7 @@
 
 Turn production failures into a measurable fix-and-verify loop: read what's breaking from clusters/signals, replay it as an eval against the agent you're editing, and iterate until the failure mode clears. **This runs inside a debug session** — each iteration runs the eval under `LMNR_DEBUG`, so it lands as one `evaluation` block in the same session timeline as your debugger work. Read [debugging.md](debugging.md) first; this builds on it and reuses its session + note machinery.
 
-**Document as you go.** Under the debug flag the session becomes a transcript the human reads and explores later. Drop a note when you **open the session** (what you're tuning, the baseline), **before each run** (your intent), and **after it** (what moved, what's next) — that's what makes the loop legible. See §4 and §7.
+**Document as you go.** Under the debug flag the session becomes a transcript the human reads and explores later, so journal what you tried and what you saw as you iterate — that's what keeps the loop legible (§4, §7).
 
 ## Your role
 
@@ -17,10 +17,10 @@ You're the **parent agent**; the **child agent** is what you're editing. You exe
 1. **Find the failure mode** — cluster `signal_events`, pick the cluster you're fixing (§1).
 2. **Freeze a dataset** — pull failing traces' inputs once, reuse every iteration (§2).
 3. **Write the eval** — executor calls the child; evaluators invert the signal; set a per-iteration `name` and a per-session `groupName` (§3).
-4. **Note intent + launch** — `add-note` your `## Change` / `## Why`, edit the child (one thing), run the eval (§4).
+4. **Note intent + launch** — `add-note` what you're changing and why, edit the child (one thing), run the eval (§4).
 5. **Read cheaply** — scores first, then failing rows' inputs/outputs, then a full trace only if needed (§5).
 6. **Diff** — this run vs the previous run in the same group (§6).
-7. **Journal** — append `## Result`, drop it into the session as a note (§7).
+7. **Journal** — `add-note` what the run showed and what's next (§7).
 8. **Stop** — target dimension ≥ threshold AND no new failure category vs baseline (§8).
 
 ## Two grouping keys — keep them separate
@@ -32,16 +32,16 @@ An eval run carries both, and neither derives from the other:
 
 ## How the run lands in the session
 
-The eval carries `rollout.session_id` on the **evaluation's** metadata (`evaluations.metadata`), so the backend writes **one `evaluation` block** for the whole run. The per-datapoint eval traces deliberately do NOT carry it, so you get one block, not N trace blocks. `debug session summary` reads these blocks back.
+The run stamps `rollout.session_id` on the **evaluation's** metadata (`evaluations.metadata`), so it lands as **one `evaluation` block** — not N per-datapoint traces. `debug session summary` reads these back.
 
-- **TS:** `LMNR_DEBUG=1 npx lmnr eval` stamps `rollout.session_id` automatically, resolving the session from `.lmnr/debug-session.json`.
-- **Python:** same loop — the one difference is you export `LMNR_DEBUG=1` in the environment first, then run your eval script.
+- **TS:** `LMNR_DEBUG=1 npx lmnr eval` stamps it automatically from `.lmnr/debug-session.json`.
+- **Python:** same, but export `LMNR_DEBUG=1` in the environment first, then run your eval.
 
 ## Prerequisites
 
 - **Child agent is runnable from this codebase** (local function or callable endpoint). If you can't run it, you can't close the loop.
 - **`lmnr-cli login`** ([cli.md](cli.md)) is done — this loop drives everything through the CLI. Not logged in? Run `npx lmnr-cli setup`. The CLI resolves the project from `.lmnr/project.json` OR a per-call `--project-id <uuid>`.
-- **A debug session exists** — `npx lmnr-cli debug session new` mints one, registers it server-side, and writes `.lmnr/debug-session.json`; later `LMNR_DEBUG=1` runs and CLI calls in this directory rejoin it. Optionally `debug session set-name "<what you're tuning>"` for a readable UI label. Don't hand-write the file (skips server registration → `summary`/`add-note`/`open` 404). If `debug session new` only writes a local file (WARN + exit 0), the backend is unreachable — treat as a hard error, fix, retry.
+- **A debug session exists** — `npx lmnr-cli debug session new` mints one, registers it server-side, and writes `.lmnr/debug-session.json`; later `LMNR_DEBUG=1` runs and CLI calls rejoin it. Don't hand-write the file (skips registration → `summary`/`add-note`/`open` 404). If `new` only writes a local file (WARN + exit 0), the backend is unreachable — fix it before proceeding.
 - **Project has recent traces.** §1 returns zero rows on a brand-new project — check with `sql query "SELECT count() FROM traces WHERE start_time > now() - INTERVAL 7 DAY"`. If empty, instrument first (<https://laminar.sh/docs/tracing/introduction>).
 
 ## Hard rules
@@ -128,11 +128,7 @@ Bump `name` each iteration so every `evaluation` block is legible; keep `groupNa
 **Note your intent first**, as a session block, then launch the eval:
 
 ```bash
-npx lmnr-cli debug session add-note "## Change
-<one paragraph: file, lines, what you changed>
-
-## Why
-<hypothesis: which failure pattern this should move, what tail you're compressing>"
+npx lmnr-cli debug session add-note "Capping synthesis at 200 words (report.ts:80-95) to compress the long-output tail driving the severity failures."
 
 LMNR_DEBUG=1 npx lmnr eval evals/<eval-file>.eval.ts
 ```
@@ -188,15 +184,13 @@ Improvement = score up / failures down. Also compare failing rows run-over-run: 
 
 ## 7. Journal the run
 
-The notes are the loop's changelog — the reasoning artifact the human reads later. Keep them honest: **why** you made this change (the intent note from §4) and, after reading the scores, **what you observed** and **what's next**. Add the result as a second session block:
+The notes are the loop's changelog. After reading the scores, add a second block with what happened and why:
 
 ```bash
-npx lmnr-cli debug session add-note "## Result
-severity 0.733 -> 0.800 (+0.067), reasoning held, cost +\$0.001. KEEP.
-Next: tighten the info floor — 3/6 remaining failures are target=warning, output=info."
+npx lmnr-cli debug session add-note "severity 0.733 -> 0.800 (+0.067), reasoning held, cost +\$0.001 — keep. 3/6 remaining failures are target=warning / output=info, so next tighten the info floor."
 ```
 
-Each `add-note` adds a new block, interleaved by time with the run's `evaluation` blocks. `npx lmnr-cli debug session summary` dumps the whole timeline oldest-first — the human's changelog.
+`npx lmnr-cli debug session summary` dumps the whole timeline oldest-first — the human's changelog.
 
 **Replay caching may not apply.** If the agent under test runs server-side (you POST inputs to an endpoint), there's nothing local to cache — you get the session + journal layer, not replay. The per-iteration cost lever there is dataset size.
 
