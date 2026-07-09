@@ -1,6 +1,6 @@
 ---
 name: laminar
-description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces, debugging an agent under LMNR_DEBUG (recording runs, replaying cached LLM calls, annotating debug sessions), or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
+description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, create eval datasets and run evaluations, debug agents with record/replay, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces, building an eval or regression dataset from production traces or files, debugging an agent under LMNR_DEBUG (recording runs, replaying cached LLM calls, annotating debug sessions), or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
 ---
 
 # Laminar
@@ -28,6 +28,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 | Add Laminar tracing to a Python codebase | [references/instrumentation-python.md](references/instrumentation-python.md) |
 | Use `lmnr-cli` / `lmnr` CLI (sql, datasets, debugger, eval, cursor rules) | [references/cli.md](references/cli.md) |
 | Query spans/traces/events with SQL API | [references/sql-query-api.md](references/sql-query-api.md) |
+| Create an eval dataset (from production traces, files, or code) and wire it into `evaluate()` | [references/eval-datasets.md](references/eval-datasets.md) |
 | Migrate from Langfuse / LangSmith / Helicone / OpenTelemetry | [references/migration.md](references/migration.md) |
 | Debug an agent: record under `LMNR_DEBUG`, replay cached LLM calls, annotate sessions | [references/debugging.md](references/debugging.md) |
 | Run a production-failure fix-and-verify eval loop (record → eval → verify) inside a debug session | [references/eval-loop.md](references/eval-loop.md) |
