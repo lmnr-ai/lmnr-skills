@@ -1,6 +1,6 @@
 # Creating eval datasets
 
-Build a Laminar dataset of datapoints for evaluations — from production traces, local files, or hand-written examples — and wire it into `evaluate()`. A good dataset is the difference between an eval that measures something and an eval that measures noise: frozen, provenance-tagged, and shaped so the executor and evaluators can consume it directly.
+Build a Laminar dataset of datapoints for evaluations — from production traces, local files, or hand-written examples — and wire it into `evaluate()`. A good dataset can help you pinpoint weaknesses in your agent and give you confidence that it will perform well in production.
 
 For the full record → eval → verify loop inside a debug session, see [eval-loop.md](eval-loop.md); this file is the standalone how-to for the dataset itself.
 
@@ -9,8 +9,8 @@ For the full record → eval → verify loop inside a debug session, see [eval-l
 Every datapoint has three JSON objects, each with arbitrary keys:
 
 - **`data`** — the executor's input. Shape it to match what the executor function receives (e.g. `{ "messages": [...] }` or `{ "country": "France" }`).
-- **`target`** — reference data passed to evaluators alongside the executor output. Optional: production traces have no gold label, so regression datasets usually omit it and the evaluator checks a *property* (did the failure recur?), not exact match.
-- **`metadata`** — provenance and slicing keys (`source_trace_id`, `cluster_id`, `customer_tier`, ...). Never scoring inputs.
+- **`target`** — reference data passed to evaluators alongside the executor output. Optional, and its shape depends on how you score: some datasets carry a simple target (an exact-match answer); others carry softer targets meant for another agent acting as a judge; production regression sets often omit it and the evaluator checks a *property* (did the failure recur?) instead. Whatever the case, this is where you store the data an evaluator needs to score the datapoint.
+- **`metadata`** — any other data you want associated with this datapoint or its runs (`source_trace_id`, `cluster_id`, `customer_tier`, ...), typically for provenance and slicing.
 
 ```json
 {
@@ -24,12 +24,10 @@ On push, each datapoint gets a UUIDv7 `id`. Ids drive versioning — **never edi
 
 ## Building a good dataset
 
-The dataset is the measuring instrument — these decisions determine whether the eval measures something real.
-
-- **Be representative.** The dataset should mirror your actual production distribution — the same mix of case types, in roughly the proportions they occur for real. An eval built on cherry-picked or idealized inputs measures noise, not the workflow you ship.
+- **Decide what the dataset is optimizing for.** There's no single right distribution — build for the question you're asking. A *representative* dataset mirrors your production distribution (the same mix of case types, in the proportions they actually occur) and tells you how the agent does in the wild. A *failure-skewed* dataset deliberately over-weights the cases you're trying to fix and tells you whether a change actually moved them. Pick one intent per dataset.
 - **Cover the bands deliberately.** Include common cases, valid edge cases, and adversarial/failure cases — and keep the production noise (typos, truncated input, junk) if real users produce it. A dataset of only clean, easy inputs saturates and stops discriminating between versions.
-- **Match `data` keys to the executor signature.** `evaluate()` passes the whole `data` object to the executor; a mismatch fails at run time, not push time. (See [Match the datapoint to the executor](#match-the-datapoint-to-the-executor) — this is the hard part when sourcing from traces.)
-- **Keep one dataset per failure mode / capability**, named for what it tests (`refund-escalation-failures`, `capitals-of-the-world`) — not `test-data-2`.
+- **Match `data` keys to the executor signature.** `evaluate()` passes the whole `data` object to the executor; a mismatch fails at run time, not push time. (See [Match the datapoint to the executor](#match-the-datapoint-to-the-executor).)
+- **Give datasets descriptive names** so anyone can tell what's being tested later (`refund-escalation-failures`, `capitals-of-the-world`) — not `test-data-2`.
 - **Freeze within a cycle, grow between them.** Hold the datapoints fixed while you change the agent one thing at a time — growing the set mid-iteration makes run-over-run diffs meaningless. But treat the dataset as *living* across cycles: when a new production failure surfaces (a new signal cluster), fold it in as a regression datapoint so it can't silently come back. Re-pushing keeps ids, so this versions rows rather than duplicating them.
 - **Stamp provenance into `metadata`** so failing rows can be traced back to the production trace or source file they came from.
 - **Spot-check individual datapoints.** Before you trust the set, read a sample end-to-end — confirm each is genuinely the case you intended and its `data` shape is right. A dataset that looks fine in aggregate but is subtly malformed produces a confident, wrong score.
@@ -85,7 +83,7 @@ npx lmnr-cli dataset create refund-escalation-failures data.jsonl -o refund-esca
 
 ## Match the datapoint to the executor
 
-This is the step that trips people up. `evaluate()` passes the **whole `data` object as the executor's single argument**, so `data`'s top-level shape must be exactly what the executor destructures. But a trace's *recorded* input shape depends on how it was instrumented and rarely matches your executor as-is: an LLM span's input is a `[{role, content}]` message array; a Python `@observe` span's is a `{argName: value}` param-dict; a TypeScript `observe` span's is either the single argument object or a positional `[arg0, arg1]` array. Same logical call, different container.
+`evaluate()` passes the **whole `data` object as the executor's single argument**, so `data`'s top-level shape must be exactly what the executor destructures. But a trace's *recorded* input shape depends on how it was instrumented and rarely matches your executor as-is: an LLM span's input is a `[{role, content}]` message array; a Python `@observe` span's is a `{argName: value}` param-dict; a TypeScript `observe` span's is either the single argument object or a positional `[arg0, arg1]` array. Same logical call, different container.
 
 So the transform is executor-dependent — decide it before pulling the batch:
 
@@ -105,8 +103,6 @@ lmnr-cli dataset list --json
 ```
 
 `push`/`pull` take `-n <name>` or `--id <id>`; `create`/`push`/`pull` accept `--batch-size` (default 100) and `-r`/`--recursive` for directories. `-o` is required on `create`; the copy it writes is the file to keep editing locally — it carries the server-assigned ids, so re-pushing it versions datapoints instead of duplicating them.
-
-No `lmnr-cli login` available (headless, no browser)? The SDK-bundled CLI does the same job with just `LMNR_PROJECT_API_KEY`: `npx lmnr datasets create <name> <file>` (TS) or `lmnr datasets create <name> <file>` (Python).
 
 ## From code (SDK)
 
