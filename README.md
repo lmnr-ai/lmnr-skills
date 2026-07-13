@@ -1,6 +1,6 @@
 # laminar-skill
 
-A single, unified skill for [Laminar](https://docs.laminar.sh): instrument code with tracing, run the Laminar CLI, query trace data with SQL, create eval datasets, debug agents with record/replay, and migrate from other observability tools.
+A single, unified skill for [Laminar](https://laminar.sh/docs): instrument code with tracing, run the Laminar CLI, query trace data with SQL, create eval datasets, debug agents with record/replay, and migrate from other observability tools.
 
 ## Install
 
