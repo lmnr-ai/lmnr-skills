@@ -94,10 +94,10 @@ npx lmnr-cli sql query "
     metadata: { source_trace_id: .source_trace_id, cluster_id: "<cluster_id>" }
   }' > data.jsonl
 
-npx lmnr-cli dataset create <dataset-name> data.jsonl   # name it for what you're testing, e.g. report-quality-failures
+npx lmnr-cli dataset create <dataset-name> data.jsonl -o <dataset-name>.jsonl   # name it for what you're testing, e.g. report-quality-failures
 ```
 
-Targets are usually omitted: production traces have no gold label, so the evaluator checks a *property* (did the failure recur?), not exact match. **Build the dataset once and reuse it by name every iteration.**
+Targets are usually omitted: production traces have no gold label, so the evaluator checks a *property* (did the failure recur?), not exact match. **Build the dataset once and reuse it by name every iteration.** For dataset format, design rules, and non-cluster sources (files, SDK, UI export), see [eval-datasets.md](eval-datasets.md).
 
 ## 3. Write the eval
 

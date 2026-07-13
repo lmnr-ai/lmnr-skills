@@ -49,5 +49,5 @@ If you already emit OTEL spans, keep the instrumentation and redirect export to 
 
 Use the exact OTLP endpoint and headers documented for your deployment (cloud vs self-hosted):
 
-- https://docs.laminar.sh/tracing/otel
-- https://docs.laminar.sh/tracing/troubleshooting-opentelemetry
+- https://laminar.sh/docs/tracing/otel
+- https://laminar.sh/docs/tracing/troubleshooting-opentelemetry

@@ -1,6 +1,6 @@
 # laminar-skill
 
-A single, unified skill for [Laminar](https://docs.laminar.sh): instrument code with tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools.
+A single, unified skill for [Laminar](https://laminar.sh/docs): instrument code with tracing, run the Laminar CLI, query trace data with SQL, create eval datasets, debug agents with record/replay, and migrate from other observability tools.
 
 ## Install
 
@@ -14,6 +14,7 @@ npx skills add lmnr-ai/laminar-skills --skill laminar
 - "Instrument this codebase with Laminar and choose the most useful spans."
 - "Show me a Laminar example that produces a trace in under 2 minutes."
 - "Use the Laminar CLI to query the slowest spans in the last 24 hours."
+- "Build an eval dataset from last week's failed traces and run an eval over it."
 - "Migrate our Langfuse tracing to Laminar."
 - "Debug my agent with the Laminar debugger: record a run, find the bad LLM call, and replay up to it."
 
@@ -27,6 +28,7 @@ The skill routes from a single `SKILL.md` to focused, one-level-deep reference f
 - `skills/laminar/references/quickstart.md` — minimal demo trace (Node + Python) and troubleshooting
 - `skills/laminar/references/cli.md` — `lmnr-cli` and the SDK-bundled `lmnr` CLI (sql, datasets, dev, eval)
 - `skills/laminar/references/sql-query-api.md` — SQL Query API and ClickHouse query patterns
+- `skills/laminar/references/eval-datasets.md` — create eval datasets from production traces, files, or code, and wire them into `evaluate()`
 - `skills/laminar/references/migration.md` — migrate from Langfuse, LangSmith, Helicone, or OpenTelemetry
 - `skills/laminar/references/debugging.md` — agent debugger: record under `LMNR_DEBUG`, inspect with SQL, replay cached LLM calls, annotate sessions
 
