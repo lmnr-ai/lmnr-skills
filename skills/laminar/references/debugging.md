@@ -1,6 +1,6 @@
 # Laminar Debugger
 
-Use when building, testing, or debugging an LLM agent instrumented with Laminar. The debugger records each run as a trace, lets you replay cached LLM calls so you iterate fast and deterministically, and lets you annotate the session so a human can follow what you did.
+Use when building, testing, or debugging an LLM agent instrumented with Laminar. The debugger records each run as a trace, lets you replay cached LLM calls so you iterate fast and deterministically, and lets you annotate the session so a human can follow what you did. When the debugging turns into iterating on an eval score across many runs, also read [optimization.md](optimization.md) — the discipline layer for multi-iteration tuning.
 
 ## Your role
 

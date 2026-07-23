@@ -31,6 +31,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 | Migrate from Langfuse / LangSmith / Helicone / OpenTelemetry | [references/migration.md](references/migration.md) |
 | Debug an agent: record under `LMNR_DEBUG`, replay cached LLM calls, annotate sessions | [references/debugging.md](references/debugging.md) |
 | Run a production-failure fix-and-verify eval loop (record → eval → verify) inside a debug session | [references/eval-loop.md](references/eval-loop.md) |
+| Iteratively optimize an agent against an eval score (prompt/pipeline tuning over many runs) — ALSO read whenever a debugging or eval-loop task turns into score-chasing | [references/optimization.md](references/optimization.md) |
 
 The cross-cutting concepts shared by both SDKs — span context propagation, tags, metadata, sessions, privacy controls, custom LLM cost tracking, flushing — live in the two instrumentation files (one per language) so each is complete on its own.
 
