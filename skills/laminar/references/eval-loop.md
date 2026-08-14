@@ -1,6 +1,6 @@
 # Laminar eval loop
 
-Turn production failures into a measurable fix-and-verify loop: read what's breaking from clusters/signals, replay it as an eval against the agent you're editing, and iterate until the failure mode clears. **This runs inside a debug session** — each iteration runs the eval under `LMNR_DEBUG`, so it lands as one `evaluation` block in the same session timeline as your debugger work. Read [debugging.md](debugging.md) first; this builds on it and reuses its session + note machinery.
+Turn production failures into a measurable fix-and-verify loop: read what's breaking from clusters/signals, replay it as an eval against the agent you're editing, and iterate until the failure mode clears. **This runs inside a debug session** — each iteration runs the eval under `LMNR_DEBUG`, so it lands as one `evaluation` block in the same session timeline as your debugger work. Read [debugging.md](debugging.md) first; this builds on it and reuses its session + note machinery. **If the loop runs more than a couple of iterations — you're optimizing a score, not verifying one fix — also read [optimization.md](optimization.md)**: the discipline layer (single-row spot-checks with guard rows; general fixes over case-specific ones) that keeps a multi-run arc honest.
 
 **Document as you go.** Under the debug flag the session becomes a transcript the human reads and explores later, so journal what you tried and what you saw as you iterate — that's what keeps the loop legible (§4, §7).
 
