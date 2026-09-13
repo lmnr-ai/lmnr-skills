@@ -131,20 +131,37 @@ WHERE trace_id = '<trace-id>' AND span_type IN ('LLM', 'CACHED')
 ORDER BY start_time ASC;
 ```
 
-Discover the full schema with `npx lmnr-cli sql schema`. Useful tables: `spans`, `traces`, `events`, `signal_events`. See [sql-query-api.md](sql-query-api.md) for more patterns.
+Discover the full schema with `npx lmnr-cli sql schema`. Useful tables: `spans`, `traces`, `signal_events`, `trace_outputs`. See [sql-query-api.md](sql-query-api.md) for more patterns.
 
 ### Signal events — recent errors and insights
 
 `signal_events` records signals fired during runs (evaluation failures, flagged conditions, insights). Scan it to surface what recently went wrong without reading every trace:
 
 ```sql
-SELECT timestamp, name, trace_id, payload
+SELECT timestamp, name, severity, trace_id, substring(payload, 1, 2000) AS payload
 FROM signal_events
+WHERE timestamp > now() - INTERVAL 1 DAY
 ORDER BY timestamp DESC
 LIMIT 20;
 ```
 
-Join back to the offending trace with `trace_id`, then drop into its spans.
+`severity` is `0` INFO / `1` WARNING / `2` CRITICAL. Join back to the offending trace with `trace_id`, then drop into its spans.
+
+`traces` also carries each trace's signal events and named failure clusters as array columns, which is the better read when you want to scan **your session's** runs specifically — the session filter and the signals land on the same row, no second query:
+
+```sql
+SELECT t.id AS trace_id, t.start_time, t.status,
+       arrayMap(c -> c.name, arrayFilter(c -> c.level = 1, t.clusters)) AS clusters,
+       arrayMap(e -> e.severity, t.signal_events) AS severities
+FROM traces AS t
+WHERE simpleJSONExtractString(t.metadata, 'rollout.session_id') = '<session-id>'
+  AND t.start_time > now() - INTERVAL 7 DAY
+  AND notEmpty(t.signal_events)
+ORDER BY t.start_time DESC
+LIMIT 20;
+```
+
+`clusters` on a trace includes each event's finest cluster plus its ancestors, hence the `level = 1` filter. Reading any field of `signal_events` pulls the payload with it, so `substring` it or read only the array length (`notEmpty` / `empty`). Older deployments don't have these two columns — `npx lmnr-cli sql schema` tells you.
 
 ## 4. Replay to iterate fast
 
