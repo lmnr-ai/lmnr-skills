@@ -161,7 +161,7 @@ ORDER BY t.start_time DESC
 LIMIT 20;
 ```
 
-`clusters` on a trace includes each event's finest cluster plus its ancestors, hence the `level = 1` filter. Reading any field of `signal_events` pulls the payload with it, so `substring` it or read only the array length (`notEmpty` / `empty`). Older deployments don't have these two columns — `npx lmnr-cli sql schema` tells you.
+`clusters` on a trace includes each event's finest cluster plus its ancestors, hence the `level = 1` filter; [sql-query-api.md](sql-query-api.md#signals-and-clusters) has the full column shapes. `payload` is large, so `substring` it or read only the array length (`notEmpty` / `empty`).
 
 ## 4. Replay to iterate fast
 

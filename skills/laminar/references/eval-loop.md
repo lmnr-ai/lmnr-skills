@@ -73,23 +73,9 @@ npx lmnr-cli sql query "
   LIMIT 20" --json
 ```
 
-`clusters` on a trace holds the finest cluster of each of its signal events (`level = 1`) **plus the ancestors as separate elements**, which is why the `level` filter is there: without it a trace is counted once per level of the hierarchy. Scope to one Signal with `AND c.signal_id = '<uuid>'`.
+Scope to one Signal with `AND c.signal_id = '<uuid>'`. The `level = 1` filter and the cluster column shapes are explained in [sql-query-api.md](sql-query-api.md#signals-and-clusters).
 
-Same leaderboard from the event side when you want per-event counts and severity instead of per-trace cost. `cluster_details` is an **unnamed** tuple, so access it positionally (`c.1` id, `c.2` name, `c.3` level):
-
-```bash
-npx lmnr-cli sql query "
-  SELECT c.1 AS cluster_id, c.2 AS cluster, count() AS n, max(severity) AS severity
-  FROM signal_events
-  ARRAY JOIN cluster_details AS c
-  WHERE timestamp > now() - INTERVAL 7 DAY
-    AND c.3 = 1
-  GROUP BY cluster_id, cluster
-  ORDER BY n DESC
-  LIMIT 20" --json
-```
-
-Then read a few payloads from the cluster you picked to see what the failures actually say (`signal_events` has no `summary` column — the payload is the content):
+Then read a few payloads from the cluster you picked to see what the failures actually say — the payload is the event's content:
 
 ```bash
 npx lmnr-cli sql query "
@@ -120,7 +106,7 @@ npx lmnr-cli sql query "
 npx lmnr-cli dataset create <dataset-name> data.jsonl   # name it for what you're testing, e.g. report-quality-failures
 ```
 
-`agent_input` is the extracted agent task / user input (the old `root_span_input`). If the deployment's `traces` has no `clusters` column, fall back to two queries: `SELECT DISTINCT trace_id FROM signal_events WHERE has(clusters, toUUID('<cluster_id>'))`, then `SELECT id AS source_trace_id, agent_input FROM traces WHERE id IN (…)`.
+`agent_input` is the extracted agent task / user input (the old `root_span_input`).
 
 Targets are usually omitted: production traces have no gold label, so the evaluator checks a *property* (did the failure recur?), not exact match. **Build the dataset once and reuse it by name every iteration.**
 
@@ -229,8 +215,8 @@ Stop when, on the frozen dataset: target dimension ≥ the user's threshold **an
 
 Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql-editor#table-schemas>. Loop-relevant columns:
 
-- **`signal_events`** — `trace_id`, `signal_id`, `name` (the Signal's name), `payload` (JSON string, large — wrap in `substring`), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`, `signal_version`, and three cluster columns: `clusters` `Array(UUID)` (leaf + ancestors), `leaf_clusters` `Array(UUID)` (level 1 only), `cluster_details` (ids + names + levels, **unnamed** tuple → `c.1`/`c.2`/`c.3`). Non-L0; `signal_events_all` for L0.
-- **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `agent_input` (parse as JSON, fall back to string), `status`, `start_time`, `total_cost`, plus the signal columns: `signal_events` `Array(Tuple(event_id, signal_id, severity, payload))` and `clusters` `Array(Tuple(id, signal_id, name, level, parent_id, num_signal_events, created_at, updated_at))` — both named tuples, so `e.severity` / `c.level` resolve. Agent output messages live in `trace_outputs.agent_output`.
+- **`signal_events`** — `trace_id`, `signal_id`, `name` (the Signal's name), `payload` (JSON string, large — wrap in `substring`), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`, `signal_version`, and the cluster columns `clusters`, `leaf_clusters`, `cluster_details`. Non-L0; `signal_events_all` for L0.
+- **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `agent_input` (parse as JSON, fall back to string), `status`, `start_time`, `total_cost`, plus the `signal_events` and `clusters` array columns. Agent output messages live in `trace_outputs.agent_output`. Column shapes for both tables: [sql-query-api.md](sql-query-api.md#signals-and-clusters).
 - **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 

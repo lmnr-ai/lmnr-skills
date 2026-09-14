@@ -49,7 +49,7 @@ SELECT only. Queries are scoped to your project automatically — no tenant filt
 - **Signals:** `signal_events`, `signal_events_all` (L0-inclusive), `signal_runs`, `clusters`, `event_clusters_all`
 - **Datasets and evals:** `dataset_datapoints`, `dataset_datapoint_versions`, `evaluation_datapoints`, `labeling_queue_items`
 
-Anything else is rejected (`Table 'x' is not allowed`), and a column that isn't on the table is rejected the same way, so don't guess: **`lmnr-cli sql schema` prints the live schema of the deployment you're pointed at**, which is the only reliable source when a project may be on Laminar Cloud or on an older self-hosted build. `project_id` is never queryable — the query is already scoped.
+Anything else is rejected (`Table 'x' is not allowed`), as is a column that isn't on the table — there is no `events` or `tags` table, for instance; tags are the `tags` / `trace_tags` columns on `traces`. Don't guess: **`lmnr-cli sql schema` prints the live schema**. `project_id` is never queryable — the query is already scoped.
 
 ## Query guidance
 
@@ -61,34 +61,49 @@ Anything else is rejected (`Table 'x' is not allowed`), and a column that isn't 
 
 ## Signals and clusters
 
-Signals are natural-language outcome/failure definitions; each match is a **signal event** on a trace, and similar events are grouped into named **clusters**. Both are readable two ways, and the direction you pick decides how much SQL you write.
+A Signal is a natural-language outcome or failure definition; each match is a **signal event** on a trace, and similar events are grouped into named **clusters**.
 
-**`traces` carries them as array columns.** This is the one to reach for when the row you want back is a trace, because trace cost, duration, status, and metadata are right there:
+`traces` carries both as array columns, so a trace row already tells you what fired on it:
 
 - `signal_events` — `Array(Tuple(event_id UUID, signal_id UUID, severity UInt8, payload String))`. `severity` is `0` INFO / `1` WARNING / `2` CRITICAL. Empty for traces no Signal fired on.
-- `clusters` — `Array(Tuple(id UUID, signal_id UUID, name String, level UInt8, parent_id UUID, num_signal_events UInt32, created_at, updated_at))`. Already resolved to names. Contains each event's finest cluster (`level = 1`) **plus its ancestors as separate elements**, so filter on `level` when you don't want a trace counted once per level. Empty until events are clustered.
+- `clusters` — `Array(Tuple(id UUID, signal_id UUID, name String, level UInt8, parent_id UUID, num_signal_events UInt32, created_at, updated_at))`, names already resolved. Empty until events are clustered.
+
+Start here to find out *what* is going wrong, because cost, duration, status, and metadata sit on the same row:
 
 ```sql
--- Which failure clusters cost the most this week?
+-- Which failure clusters am I paying the most for?
 SELECT c.name AS cluster, count() AS traces, round(sum(t.total_cost), 4) AS cost
 FROM traces AS t
 ARRAY JOIN t.clusters AS c
 WHERE t.start_time > now() - INTERVAL 7 DAY AND c.level = 1
 GROUP BY cluster ORDER BY cost DESC LIMIT 20
 
--- Critical signal events with the trace they came from.
+-- Did anything critical fire today, and on which traces?
 SELECT t.id AS trace_id, t.end_time, e.signal_id, substring(e.payload, 1, 2000) AS payload
 FROM traces AS t
 ARRAY JOIN t.signal_events AS e
 WHERE t.start_time > now() - INTERVAL 1 DAY AND e.severity = 2
 ORDER BY t.end_time DESC LIMIT 50
 
--- Coverage: how many traces did a Signal fire on? (reads array length only)
+-- How much of my traffic does any Signal fire on?
 SELECT countIf(notEmpty(signal_events)) AS with_signal, countIf(empty(signal_events)) AS without
 FROM traces WHERE start_time > now() - INTERVAL 1 DAY
 ```
 
-**Use `signal_events` when you want events back**, since `timestamp`, `name` (the Signal's name), `run_id`, and `signal_version` only exist there. Its cluster columns are `clusters` (`Array(UUID)`, leaf + ancestors), `leaf_clusters` (`Array(UUID)`, level 1 only — unnest this when each event must be counted once), and `cluster_details` (ids with names and levels resolved).
+A trace's `clusters` holds the finest cluster of every event on it (`level = 1`) **plus its ancestors as separate elements** — hence the `level` filter, or the trace is counted once per level of the hierarchy.
+
+Once you know which cluster or signal you care about, `signal_events` is where the numbers live: one row per event, plus `timestamp`, `name` (the Signal's name), `run_id`, and `signal_version`, which the trace columns don't carry.
+
+```sql
+-- Is this cluster growing or did it spike once?
+SELECT toStartOfDay(timestamp) AS day, count() AS events, max(severity) AS severity
+FROM signal_events
+WHERE has(leaf_clusters, toUUID('<cluster_id>'))
+  AND timestamp > now() - INTERVAL 30 DAY
+GROUP BY day ORDER BY day
+```
+
+Its cluster columns are `clusters` (`Array(UUID)`, leaf + ancestors), `leaf_clusters` (`Array(UUID)`, level 1 only — unnest this when each event must be counted once), and `cluster_details`, which resolves ids to names and levels. `cluster_details` is an **unnamed** tuple, so read it positionally — `c.1` id, `c.2` name, `c.3` level — whereas the tuples on `traces` are named and take `c.name` / `c.level`:
 
 ```sql
 SELECT timestamp, name AS signal, severity, trace_id,
@@ -99,14 +114,9 @@ WHERE timestamp > now() - INTERVAL 1 DAY
 ORDER BY timestamp DESC LIMIT 20
 ```
 
+`payload` is the event's content — there is no `summary` column — and it is large, so wrap it in `substring` and keep the time filter, or the result can exceed the size limit. `empty()` / `notEmpty()` read only the array length.
+
 Use `clusters` on its own for questions about the hierarchy (sizes, parents, naming) with no trace or event involved, and `event_clusters_all` when you want (event, cluster) pairs pre-unnested.
-
-Four things that will otherwise bite you:
-
-- **`cluster_details` is an unnamed tuple**, so `c.name` does not resolve on it. Use positional access: `c.1` (id), `c.2` (name), `c.3` (level). The tuples on `traces` ARE named and take `c.name` / `c.level`.
-- **`payload` is large, and reading any field of `traces.signal_events` reads the payload with it.** Select it as `substring(e.payload, 1, 2000)` or the row can be dropped for exceeding the result-size limit, and keep the `start_time` filter. `empty()` / `notEmpty()` read only the array length.
-- **`num_signal_events` counts cluster assignments including descendants**, so it can exceed the number of distinct events you get by unnesting.
-- **There is no `summary` column on `signal_events`.** Older builds exposed one; it is no longer part of the SQL surface, so read `payload` instead. There is also no `events` or `tags` table — tags are columns (`tags`, `trace_tags`) on `traces`. Run `lmnr-cli sql schema` if a query fails on an unknown column: the deployment may also predate the trace-side `signal_events` / `clusters` columns.
 
 ## Example queries
 
