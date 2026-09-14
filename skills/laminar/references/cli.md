@@ -76,7 +76,7 @@ lmnr-cli project list --json
 
 ### sql — query data
 
-Run SELECT-only ClickHouse SQL against the project's spans, traces, events, and more. Queries are auto-scoped to the resolved project.
+Run SELECT-only ClickHouse SQL against the project's spans, traces, signal events, clusters, datasets, and evals. Queries are auto-scoped to the resolved project.
 
 ```bash
 lmnr-cli sql query "SELECT name, duration FROM spans WHERE start_time > now() - INTERVAL 1 HOUR LIMIT 20"

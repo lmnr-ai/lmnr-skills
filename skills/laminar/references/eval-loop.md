@@ -48,7 +48,7 @@ The run stamps `rollout.session_id` on the **evaluation's** metadata (`evaluatio
 
 - **Journal each run, not each datapoint.** Two `add-note` blocks per iteration — intent before the run, result after — never one per datapoint.
 - **Always filter by `start_time` / `timestamp`** (ClickHouse scans the whole table otherwise).
-- **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `traces`, `spans`, `signal_events`, `signal_events_all`, `datasets` are queryable; `evaluations`, `debugger_sessions` are NOT (inspect via UI or direct DB).
+- **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `traces`, `spans`, `signal_events`, `signal_events_all`, `clusters`, `dataset_datapoints` are queryable; `evaluations`, `datasets`, `debugger_sessions` are NOT (inspect via UI or direct DB). `lmnr-cli sql schema` prints the live list.
 - **Freeze the dataset, change one thing per iteration, keep `groupName` fixed for the session** (bump `name` per run) — or the diff is meaningless.
 - **Adapt the aggregate SQL to your scorers.** Multiple evaluators (classification / severity / cost) each need their own `avg(simpleJSONExtractFloat(scores, '<name>'))` line; don't copy-paste a single-scorer template.
 
@@ -56,46 +56,57 @@ The run stamps `rollout.session_id` on the **evaluation's** metadata (`evaluatio
 
 ## 1. Find the failure mode
 
-Group recent events by cluster:
+Rank the named failure clusters, reading them off `traces` so cost comes along for free:
 
 ```bash
 npx lmnr-cli sql query "
-  SELECT arrayJoin(clusters) AS cluster_id,
-         count(*) AS n,
-         any(summary) AS example,
-         max(severity) AS severity
-  FROM signal_events
-  WHERE timestamp > now() - INTERVAL 7 DAY
-  GROUP BY cluster_id
-  ORDER BY n DESC
+  SELECT c.id AS cluster_id,
+         c.name AS cluster,
+         count() AS traces,
+         round(sum(t.total_cost), 4) AS cost
+  FROM traces AS t
+  ARRAY JOIN t.clusters AS c
+  WHERE t.start_time > now() - INTERVAL 7 DAY
+    AND c.level = 1
+  GROUP BY cluster_id, cluster
+  ORDER BY traces DESC
   LIMIT 20" --json
 ```
 
-Scope to one signal with `AND signal_id = '<uuid>'`. `signal_events` exposes non-L0 clusters; use `signal_events_all` for leaf membership. Pick the cluster you're fixing and note its `cluster_id`.
+Scope to one Signal with `AND c.signal_id = '<uuid>'`. The `level = 1` filter and the cluster column shapes are explained in [sql-query-api.md](sql-query-api.md#signals-and-clusters).
+
+Then read a few payloads from the cluster you picked to see what the failures actually say — the payload is the event's content:
+
+```bash
+npx lmnr-cli sql query "
+  SELECT trace_id, severity, substring(payload, 1, 2000) AS payload
+  FROM signal_events
+  WHERE has(leaf_clusters, toUUID('<cluster_id>'))
+    AND timestamp > now() - INTERVAL 7 DAY
+  LIMIT 10" --json
+```
+
+Note the `cluster_id` you're fixing. `signal_events` excludes L0 (unnamed, pre-naming) clusters; `signal_events_all` is the L0-inclusive sibling if you need them.
 
 ## 2. Freeze a dataset
 
-Two queries (different tables):
+One query: the traces in the cluster already carry their agent input.
 
 ```bash
-# (a) trace ids in the cluster
 npx lmnr-cli sql query "
-  SELECT DISTINCT trace_id FROM signal_events
-  WHERE has(clusters, toUUID('<cluster_id>'))
-    AND timestamp > now() - INTERVAL 30 DAY" --json
-
-# (b) replay inputs -> JSONL datapoints
-npx lmnr-cli sql query "
-  SELECT id AS source_trace_id, root_span_input FROM traces
-  WHERE id IN ('<id1>','<id2>', ...)
+  SELECT id AS source_trace_id, agent_input
+  FROM traces
+  WHERE arrayExists(c -> c.id = toUUID('<cluster_id>'), clusters)
     AND start_time > now() - INTERVAL 30 DAY" --json \
 | jq -c '.[] | {
-    data: (.root_span_input | fromjson? // .root_span_input),
+    data: (.agent_input | fromjson? // .agent_input),
     metadata: { source_trace_id: .source_trace_id, cluster_id: "<cluster_id>" }
   }' > data.jsonl
 
 npx lmnr-cli dataset create <dataset-name> data.jsonl   # name it for what you're testing, e.g. report-quality-failures
 ```
+
+`agent_input` is the extracted agent task / user input (the old `root_span_input`).
 
 Targets are usually omitted: production traces have no gold label, so the evaluator checks a *property* (did the failure recur?), not exact match. **Build the dataset once and reuse it by name every iteration.**
 
@@ -204,9 +215,9 @@ Stop when, on the frozen dataset: target dimension ≥ the user's threshold **an
 
 Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql-editor#table-schemas>. Loop-relevant columns:
 
-- **`signal_events`** — `trace_id`, `signal_id`, `summary`, `payload` (JSON string), `clusters` `Array(UUID)` (non-L0; `signal_events_all` for L0), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`.
-- **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `root_span_input` / `root_span_output` (parse as JSON, fall back to string), `status`, `start_time`.
+- **`signal_events`** — `trace_id`, `signal_id`, `name` (the Signal's name), `payload` (JSON string, large — wrap in `substring`), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`, `signal_version`, and the cluster columns `clusters`, `leaf_clusters`, `cluster_details`. Non-L0; `signal_events_all` for L0.
+- **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `agent_input` (parse as JSON, fall back to string), `status`, `start_time`, `total_cost`, plus the `signal_events` and `clusters` array columns. Agent output messages live in `trace_outputs.agent_output`. Column shapes for both tables: [sql-query-api.md](sql-query-api.md#signals-and-clusters).
 - **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 
-JSON columns are guaranteed valid objects — use `simpleJSONExtract*` (fast) or `JSONExtract*` (nested) in-query. `input` / `output` / `root_span_*` may be raw strings; try JSON, fall back. Use `ILIKE` on `input` / `output`.
+JSON columns are guaranteed valid objects — use `simpleJSONExtract*` (fast) or `JSONExtract*` (nested) in-query. `input` / `output` / `agent_input` / `payload` may be raw strings; try JSON, fall back. Use `ILIKE` on `input` / `output`.
