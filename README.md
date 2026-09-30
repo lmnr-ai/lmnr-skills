@@ -32,13 +32,13 @@ The skill routes from a single `SKILL.md` to focused, one-level-deep reference f
 
 ## blog-figure
 
-A second skill, for drawing diagrams for Laminar blog posts as SVGs in the house style: rounded charcoal panels, General Sans, one spacing grid, and color only on tracked IDs.
+A second skill, for drawing diagrams for Laminar blog posts as SVGs in the house style: rounded charcoal panels, General Sans, one spacing grid, and color only on tracked IDs. Figures are written as flexbox JSX, laid out by [Takumi](https://takumi.kane.tw), and painted with real text and optional animated wires by a small kit the skill carries.
 
 ```bash
 npx skills add lmnr-ai/laminar-skills --skill blog-figure
 ```
 
-- `skills/blog-figure/SKILL.md` — the style rules, color/type/spacing tokens, a recipe per shape with a complete example, how to fit text, and how to finish and check a figure
+- `skills/blog-figure/SKILL.md` — the style rules and tokens, the figure kit (one file to copy), a complete example figure and build script, the blocks and wire layer, how to fit text, and how to check a figure
 
 ## Notes
 
