@@ -1,6 +1,6 @@
 ---
 name: blog-figure
-description: Draw a diagram for a Laminar blog post as an SVG in the house style (rounded charcoal panels, General Sans, one spacing grid, color only on tracked IDs), built as flexbox JSX that Takumi lays out and a small kit paints with real text and optional animated wires. Use when asked to make, add, or redraw a figure, diagram, or illustration for a blog article.
+description: Draw a diagram for a Laminar blog post as an SVG in the house style (rounded charcoal panels, General Sans, one spacing grid, color only on tracked IDs), built as flexbox JSX that Takumi lays out and a small kit paints with real text and optional animated wires. Covers Laminar span trees drawn like the app's tree view. Use when asked to make, add, or redraw a figure, diagram, or illustration for a blog article, including an exported trace or span tree.
 ---
 
 # Blog figure
@@ -11,7 +11,7 @@ Figures are **flexbox JSX, not hand-placed SVG**. You describe panels, rows, and
 
 ## Look
 
-- **Flat and dark.** Charcoal panels with rounded corners on the page's dark background. No borders, shadows, gradients, icons, or emoji.
+- **Flat and dark.** Charcoal panels with rounded corners on the page's dark background. No borders, shadows, gradients, icons, or emoji. The one exception is a figure of something Laminar's app draws, like a span tree: it copies the app, icons included (see [Span trees](#span-trees)).
 - **Less is the style.** Show only what the figure proves. Cut columns, rows, notes, and tags the prose already covers. A panel with three rows beats one with six. Leave generous space inside panels.
 - **Text does the work.** Short labels and real identifiers from the post (`trace_id`, `signal_events`, `c7`). No line longer than a short phrase.
 - **Color marks identity, and nothing else.** Most of a figure is grey. Color goes only on the IDs the post tracks across figures (the join keys, the new fields), and at most one accent per row. Field names stay grey. Don't tint whole rows to highlight them. To dim something, like a row nothing points at, use `textDim`.
@@ -461,7 +461,72 @@ For anything else, use a plain `<div style={{ display: "flex", … }}>` with the
 - **Request and reply:** the request is solid with its label (`Label`, `small`, centered, 10 above the wire). The reply is dashed, 14 below, unlabelled, pointing back.
 - **Stations:** a 6×6 `rect rx=1` in `stroke`, centered on the wire, with its label in the row below.
 - **Animated dashes:** `Dashes` sends a pulse out and back along each wire, all at one speed, on the `SCATTER` timetable. It uses SMIL, so it runs inside the SVG file with no script. Only animate when asked.
+- **Arrowheads on curves:** a curve that climbs steeply over a short gap is still slanted where it ends, so a level chevron looks broken. End the wire with a short level run: `points={[from, { x: end.x - 12, y: end.y }, end]}`, then the `Chevron` at `end`.
 - **Layering:** `under` is for wires (panels cover their ends) and for dashes that should hide behind boxes. `over` is for a wire drawn through a panel, stations, and dashes meant to be seen passing a panel.
+
+## Span trees
+
+A figure of a trace copies Laminar's tree view, so readers recognize the screen. Draw the nesting a real screenshot of the run shows; if the post says otherwise, tell the author.
+
+- One `ROW` per span, indented 22 per level, with a line of elbows in `stroke` from each parent's icon to each child's.
+- Before each name, the app's span-type icon: white lucide glyph on the type's color. Names stay `text`; these colors mean span types only.
+- Optional, only when it is the point: an LLM span's output under its name (`transfer_to_bookingagent`), or a right-aligned note per row (`@observe root`). Both `small`/`dim`.
+- Root as the panel title, or as the first row when every level matters. Cut repeated branches; ten rows is plenty. Panel 420 wide, centered.
+
+```tsx
+// span-tree.tsx
+import type { ReactNode } from "react";
+import { type Boxes, C, midY, Row, TYPE } from "./figure-kit";
+
+export type Span = { name: string; depth: number; kind: "default" | "llm" | "tool"; preview?: string; note?: string };
+const INDENT = 22, TILE = 20;
+// The app's SpanTypeIcon: lucide Braces, MessageCircle, Bolt; colors flattened onto `body`.
+const KINDS: Record<Span["kind"], [string, ReactNode]> = {
+  default: ["#4d7db9", <><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" /><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" /></>],
+  llm: ["#7c3aed", <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />],
+  tool: ["#d09a0a", <><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><circle cx="12" cy="12" r="4" /></>],
+};
+const dim = { fontSize: TYPE.small, color: C.dim };
+
+/** Rows r0, r1, …; pass `from`/`to` to wrap part of the tree in a GroupTint. */
+export const SpanRows = ({ spans, from = 0, to = spans.length }: { spans: Span[]; from?: number; to?: number }) => (
+  <>{spans.slice(from, to).map((s, k) => (
+    <div key={k} style={{ display: "flex", flexDirection: "column" }}>
+      <Row id={`r${from + k}`} style={{ paddingLeft: s.depth * INDENT, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: TILE, height: TILE, borderRadius: 4, background: KINDS[s.kind][0] }}>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">{KINDS[s.kind][1]}</svg>
+        </div>
+        <div style={{ display: "flex" }}>{s.name}</div>
+        {s.note ? <div style={{ display: "flex", flexGrow: 1, justifyContent: "flex-end", ...dim }}>{s.note}</div> : null}
+      </Row>
+      {s.preview ? <Row h={20} style={{ paddingLeft: s.depth * INDENT + TILE + 8, marginTop: -6, ...dim }}>{s.preview}</Row> : null}
+    </div>
+  ))}</>
+);
+
+/** In `overlay.over`. */
+export const Elbows = ({ spans, b }: { spans: Span[]; b: Boxes }) => {
+  const x = (i: number) => b[`r${i}`].x + spans[i].depth * INDENT;
+  return (
+    <g stroke={C.stroke} fill="none" strokeLinecap="round">
+      {spans.map((s, i) => {
+        let p = i - 1;
+        while (p >= 0 && spans[p].depth >= s.depth) p--;
+        return p < 0 ? null : <path key={i} d={`M ${x(p) + TILE / 2} ${midY(b[`r${p}`]) + TILE / 2 + 3} V ${midY(b[`r${i}`])} H ${x(i) - 4}`} />;
+      })}
+    </g>
+  );
+};
+```
+
+Use it like any panel of rows:
+
+```tsx
+draw: () => <Root w={688} style={{ justifyContent: "center" }}><Panel title="airline-support" dot={C.ch} w={420}><SpanRows spans={SPANS} /></Panel></Root>,
+overlay: (b) => ({ over: <Elbows spans={SPANS} b={b} /> }),
+```
+
+A tree that ends on a preview line gets `paddingBottom: 15` on its panel.
 
 ## Layout
 
@@ -491,6 +556,7 @@ For example, `Search timeouts` (15 chars, `text`) needs ~113, plus 16 padding on
 - **Glyphs General Sans lacks** (`⋈`, arrows, math symbols) silently disappear or fall back to another font. Draw them as a small inline `<svg>` in the row, e.g. `<svg width={16} height={16} viewBox="0 0 44 44" style={{ margin: "0 4px" }}><path d="M10 13V31L34 13V31L10 13Z" fill="none" stroke="#b8b8b8" strokeWidth={3} strokeLinejoin="round" /></svg>` for ⋈.
 - **Don't add padding twice.** A row's measured box already starts where its text starts. Offsets for indents and tree elbows go from the row's box, not from the row's box plus `PAD`.
 - **Things placed after measuring can only use boxes from the first pass.** A label can be placed from a step's box, but not from a store that is itself placed in the second pass.
+- **Icons land on whole pixels.** Takumi rounds an inline `<svg>`'s position, so an icon with an odd inset in its tile (13 in 20) sits half a pixel off-center. Size icons so the inset is even: 14 in 20, or 18 in 32.
 - **Bare text in a flex element is fine:** the kit wraps it before layout, so its position is reported and backgrounds stay on the container.
 
 ## Check
