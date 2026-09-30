@@ -5,7 +5,7 @@ description: Draw a diagram for a Laminar blog post as an SVG in the house style
 
 # Blog figure
 
-A figure explains one mechanism in a post: what is stored, where a request goes, what changes. The style follows laminar.sh's landing cards: soft, dark, lots of air, very little ink. Shipped figures live in lmnr-blog-renderer's `public/figures/`. When you can, look at a few before drawing: your figure must look like it belongs next to them.
+A figure explains one mechanism in a post: what is stored, where a request goes, what changes. The style follows laminar.sh's landing cards: soft, dark, lots of air, very little ink. If the post already has figures, look at them first: yours must look like it belongs next to them.
 
 ## Look
 
@@ -16,7 +16,6 @@ A figure explains one mechanism in a post: what is stored, where a request goes,
 - **One idea per figure,** read left to right or top to bottom. At most three panels across.
 - **Titles are written as the thing is named.** Tables and identifiers are lowercase (`traces`, `signal_events`, `clusters_dict`). Names keep their spelling (`ClickHouse`, `Postgres`, `Coding agent`).
 
-<!-- generated:tokens (generated in lmnr-blog-renderer by `pnpm figure-kit` from components/blog/query-flow/layout.ts; copy it over when that changes) -->
 ## Colors
 
 | Name | Hex | Use |
@@ -75,7 +74,6 @@ Every panel sits on one vertical grid, measured from the panel's top edge. Use t
 | `panel height` | 59 + (rows − 1) × 32 + 20 | A panel of `rows` rows; a table starts from 91 instead of 59 |
 
 Canvas: 720 wide, 16 gutter each side, so content spans x 16–704.
-<!-- /generated:tokens -->
 
 ## Shapes
 
@@ -179,24 +177,15 @@ Check the tightest spots: the longest value in each column, a right-aligned tag 
 
 ## Write, finish, check
 
-**In lmnr-blog-renderer, prefer the JSX route.** The scene imports the real tokens (`components/blog/query-flow/layout.ts`) and building blocks (`primitives.tsx`: `Node`, `Text`, `ColumnHeaders`, `GroupTint`, `Step`), so it can't drift from the style.
-1. Write a scene `components/blog/<post-figures>/scenes/<name>.tsx` that returns a `<g>`. Compute every coordinate from the tokens, as the existing scenes do, and export the scene's bottom edge for the viewBox crop.
-2. Register it in that folder's `figures.tsx`: add it to `SCENES`, put its alt text in `LABELS`, and give its `{ top, bottom }` in `BOUNDS`. A new post gets a new folder and an entry in `scripts/export-figures.tsx` and `app/figures/page.tsx`.
-3. Look at it live on `/figures?only=<name>` (`pnpm dev`). `?width=360` shows the phone width, and `?headers=plain` hides the column bands.
-4. `pnpm export-figures` writes `public/figures/<post>-<name>.svg`, with the font embedded. A hand-written SVG there goes through `pnpm finish-figure figures-src/<name>.svg` instead.
-5. If you changed `layout.ts`, run `pnpm figure-kit` and copy the regenerated token tables into this skill.
-
-**Anywhere else, hand-write the SVG:**
-1. Start from the complete example above. Keep `<svg xmlns="http://www.w3.org/2000/svg" viewBox="…" aria-label="<alt text>">`. Every `<text>` carries its style inline, exactly as in the example. No `<style>`, fonts, images, or external references while drawing.
-2. **Finish it** before it ships, because an SVG shown through `<img>` can't use the page's fonts. Insert these right after the opening `<svg>` tag:
+1. **Draw.** Write `<post-slug>-<what-it-shows>.svg`, starting from the complete example above. Keep `<svg xmlns="http://www.w3.org/2000/svg" viewBox="…" aria-label="<alt text>">`. Every `<text>` carries its style inline, exactly as in the example. No `<style>`, fonts, images, or external references while drawing.
+2. **Finish** it before it ships, because an SVG shown through `<img>` can't use the page's fonts. Insert these right after the opening `<svg>` tag:
    - `<title>` holding the `aria-label` text.
    - A `<style>` containing:
-     - `@font-face{font-family:"Figure Sans";font-weight:200 700;src:url(data:font/woff2;base64,<…>) format("woff2")}`, with the General Sans variable woff2 (`app/fonts/general/GeneralSans-Variable.woff2` in lmnr-blog-renderer, or the free download from fontshare.com) base64-encoded.
+     - `@font-face{font-family:"Figure Sans";font-weight:200 700;src:url(data:font/woff2;base64,<…>) format("woff2")}`, with the General Sans variable woff2 base64-encoded. Use the project's own copy if it has one, or the free download from fontshare.com/fonts/general-sans. The variable file (~38 KB) covers both weights the style uses.
      - `svg{--figure-font:"Figure Sans",ui-sans-serif,sans-serif;color-scheme:dark}`. Without the color scheme, an `<object>` paints a white canvas.
      - `svg{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}`. Without it, text renders heavier on macOS.
    - Also add `width` and `height` (the viewBox's width and height) and `role="img"` to the `<svg>` tag.
-
-**Either way, check it.** Load the finished file in headless Chrome at 612px wide (the article column) and 360px (a phone), and look at both screenshots. For example: `chrome --headless=new --window-size=612,<h> --screenshot=out.png page.html`, where `page.html` is `<body style="margin:0;background:#1a1a1a"><img src="<file>" style="width:612px">`. Fix anything clipped, touching, overlapping, off the grid, or misaligned, and repeat until the 612px render is clean. At 360px, text only has to stay legible; if it doesn't, say so and offer a stacked `<name>-compact.svg`.
+3. **Check** it. Load the finished file in headless Chrome at 612px wide (the article column) and 360px (a phone), and look at both screenshots. For example: `chrome --headless=new --window-size=612,<h> --screenshot=out.png page.html`, where `page.html` is `<body style="margin:0;background:#1a1a1a"><img src="<file>" style="width:612px">`. Fix anything clipped, touching, overlapping, off the grid, or misaligned, and repeat until the 612px render is clean. At 360px, text only has to stay legible; if it doesn't, say so and offer a stacked `<name>-compact.svg`.
 
 The `aria-label` says what the figure shows in one or two sentences; it is the alt text. Report the file path and the embed line. Don't claim the figure is clean without having looked at the screenshots.
 

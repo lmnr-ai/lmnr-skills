@@ -40,8 +40,6 @@ npx skills add lmnr-ai/laminar-skills --skill blog-figure
 
 - `skills/blog-figure/SKILL.md` — the style rules, color/type/spacing tokens, a recipe per shape with a complete example, how to fit text, and how to finish and check a figure
 
-The token tables are generated in lmnr-blog-renderer (`pnpm figure-kit`) and copied here.
-
 ## Notes
 
 - You will need a Laminar project API key (dashboard → **Settings → Project API Keys**) to send traces or execute queries.
