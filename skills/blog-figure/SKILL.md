@@ -34,6 +34,7 @@ Figures are **flexbox JSX, not hand-placed SVG**. You describe panels, rows, and
 | `accent` | `#c66945` | Event IDs and the coding agent. |
 | `engine` | `#1f7bd8` | The query engine. |
 | `cluster` | `#ef6aac` | Cluster IDs. |
+| `success` | `#36d399` | Cached-token counts, as the app shows them (`--success-bright`, `hsl(158 64% 52%)`). |
 | `pulse` | `#ec7b4f` | The dash that travels along a wire; brighter than `accent` so it is not read as an event. |
 
 Identity colors (`ch`, `pg`, `accent`, `engine`, `cluster`) mean the same thing in every figure: reuse them for the same concepts, and keep everything else in the greys. A new concept that needs its own color is a question for the author, not a new hex. `pulse` is only for animated dashes.
@@ -105,6 +106,7 @@ import { type MeasuredNode, Renderer } from "takumi-js/node";
 export const C = {
   stroke: "#484848", text: "#b8b8b8", dim: "#777777", title: "#ffffff", body: "#212121", pill: "#2c2c2c",
   glyph: "#858585", ch: "#ecbb4f", pg: "#6aa4f5", accent: "#c66945", engine: "#1f7bd8", cluster: "#ef6aac", pulse: "#ec7b4f",
+  success: "#36d399", // the app's --success-bright, hsl(158 64% 52%): cached-token counts
 };
 export const TYPE = { title: 16, text: 15, small: 13 };
 const WEIGHT = 460, TITLE_WEIGHT = 500, TRACKING = 0.2;
@@ -471,14 +473,21 @@ A figure of a trace copies Laminar's tree view, so readers recognize the screen.
 - One `ROW` per span, indented 22 per level, with a line of elbows in `stroke` from each parent's icon to each child's.
 - Before each name, the app's span-type icon: white lucide glyph on the type's color. Names stay `text`; these colors mean span types only.
 - Optional, only when it is the point: an LLM span's output under its name (`transfer_to_bookingagent`), or a right-aligned note per row (`@observe root`). Both `small`/`dim`.
-- Root as the panel title, or as the first row when every level matters. Cut repeated branches; ten rows is plenty. Panel 420 wide, centered.
+- **One root span, always.** A trace has exactly one root: the first row, at depth 0, usually `default` (the `@observe` function or the run's top span). Every other span sits at depth 1 or deeper, and every one of them, the root's direct children included, gets an elbow from its parent. Never put the root in the panel title; leave the panel untitled or title it with the trace's name. `Elbows` throws on a tree without exactly one root, so a missing root can't ship as unconnected rows.
+- Token counts, when shown, follow the app: the total, then the cached count in parentheses in `success` green. Pass `tokens: ["2.7K", "768"]` on the span.
+- Cut repeated branches; ten rows is plenty. Panel 420 wide, centered.
 
 ```tsx
 // span-tree.tsx
 import type { ReactNode } from "react";
 import { type Boxes, C, midY, Row, TYPE } from "./figure-kit";
 
-export type Span = { name: string; depth: number; kind: "default" | "llm" | "tool"; preview?: string; note?: string };
+export type Span = {
+  name: string; depth: number; kind: "default" | "llm" | "tool";
+  preview?: string; note?: string;
+  /** Input tokens as the app shows them: total, then the cached count in green, e.g. ["2.7K", "768"]. */
+  tokens?: [total: string, cached?: string];
+};
 const INDENT = 22, TILE = 20;
 // The app's SpanTypeIcon: lucide Braces, MessageCircle, Bolt; colors flattened onto `body`.
 const KINDS: Record<Span["kind"], [string, ReactNode]> = {
@@ -498,6 +507,12 @@ export const SpanRows = ({ spans, from = 0, to = spans.length }: { spans: Span[]
         </div>
         <div style={{ display: "flex" }}>{s.name}</div>
         {s.note ? <div style={{ display: "flex", flexGrow: 1, justifyContent: "flex-end", ...dim }}>{s.note}</div> : null}
+        {s.tokens ? (
+          <div style={{ display: "flex", flexGrow: 1, justifyContent: "flex-end", gap: 4, ...dim }}>
+            <span>{s.tokens[0]}</span>
+            {s.tokens[1] ? <span style={{ color: C.success }}>{`(${s.tokens[1]})`}</span> : null}
+          </div>
+        ) : null}
       </Row>
       {s.preview ? <Row h={20} style={{ paddingLeft: s.depth * INDENT + TILE + 8, marginTop: -6, ...dim }}>{s.preview}</Row> : null}
     </div>
@@ -506,6 +521,7 @@ export const SpanRows = ({ spans, from = 0, to = spans.length }: { spans: Span[]
 
 /** In `overlay.over`. */
 export const Elbows = ({ spans, b }: { spans: Span[]; b: Boxes }) => {
+  if (spans[0]?.depth !== 0 || spans.slice(1).some((s) => s.depth < 1)) throw new Error("A span tree has exactly one root: the first span, at depth 0.");
   const x = (i: number) => b[`r${i}`].x + spans[i].depth * INDENT;
   return (
     <g stroke={C.stroke} fill="none" strokeLinecap="round">
@@ -522,7 +538,8 @@ export const Elbows = ({ spans, b }: { spans: Span[]; b: Boxes }) => {
 Use it like any panel of rows:
 
 ```tsx
-draw: () => <Root w={688} style={{ justifyContent: "center" }}><Panel title="airline-support" dot={C.ch} w={420}><SpanRows spans={SPANS} /></Panel></Root>,
+// SPANS[0] is the root (depth 0); everything else is depth >= 1.
+draw: () => <Root w={688} style={{ justifyContent: "center" }}><Panel w={420}><SpanRows spans={SPANS} /></Panel></Root>,
 overlay: (b) => ({ over: <Elbows spans={SPANS} b={b} /> }),
 ```
 
