@@ -48,7 +48,7 @@ The run stamps `rollout.session_id` on the **evaluation's** metadata (`evaluatio
 
 - **Journal each run, not each datapoint.** Two `add-note` blocks per iteration — intent before the run, result after — never one per datapoint.
 - **Always filter by `start_time` / `timestamp`** (ClickHouse scans the whole table otherwise).
-- **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `traces`, `spans`, `signal_events`, `signal_events_all`, `clusters`, `dataset_datapoints` are queryable; `evaluations`, `datasets`, `debugger_sessions` are NOT (inspect via UI or direct DB). `lmnr-cli sql schema` prints the live list.
+- **SQL is SELECT-only, allowlisted.** `evaluation_datapoints`, `evaluations`, `traces`, `spans`, `signals`, `signal_events`, `signal_events_all`, `clusters`, `dataset_datapoints`, `datasets` are queryable; `debugger_sessions` is NOT (inspect via UI). `lmnr-cli sql schema` prints the live list.
 - **Freeze the dataset, change one thing per iteration, keep `groupName` fixed for the session** (bump `name` per run) — or the diff is meaningless.
 - **Adapt the aggregate SQL to your scorers.** Multiple evaluators (classification / severity / cost) each need their own `avg(simpleJSONExtractFloat(scores, '<name>'))` line; don't copy-paste a single-scorer template.
 
@@ -183,6 +183,7 @@ npx lmnr-cli sql query "
 ```bash
 npx lmnr-cli sql query "
   SELECT evaluation_id,
+         any(evaluation_name) AS run,
          min(created_at) AS run_at,
          avg(simpleJSONExtractFloat(scores, 'not_stuck_loop')) AS score,
          countIf(simpleJSONExtractFloat(scores, 'not_stuck_loop') < 1) AS failures
@@ -215,9 +216,9 @@ Stop when, on the frozen dataset: target dimension ≥ the user's threshold **an
 
 Full schema: `npx lmnr-cli sql schema`, or <https://laminar.sh/docs/platform/sql-editor#table-schemas>. Loop-relevant columns:
 
-- **`signal_events`** — `trace_id`, `signal_id`, `name` (the Signal's name), `payload` (JSON string, large — wrap in `substring`), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`, `signal_version`, and the cluster columns `clusters`, `leaf_clusters`, `cluster_details`. Non-L0; `signal_events_all` for L0.
+- **`signal_events`** — `trace_id`, `signal_id`, `signal_name`, `payload` (JSON string, large — wrap in `substring`), `severity` (0 INFO / 1 WARN / 2 CRIT), `timestamp`, `signal_version`, and the cluster columns `clusters`, `leaf_clusters`, `cluster_details`. Non-L0; `signal_events_all` for L0.
 - **`traces`** — `id`, `metadata` (`rollout.session_id` for debug runs), `agent_input` (parse as JSON, fall back to string), `status`, `start_time`, `total_cost`, plus the `signal_events` and `clusters` array columns. Agent output messages live in `trace_outputs.agent_output`. Column shapes for both tables: [sql-query-api.md](sql-query-api.md#signals-and-clusters).
-- **`evaluation_datapoints`** — `evaluation_id`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
+- **`evaluation_datapoints`** — `evaluation_id`, `evaluation_name`, `group_id` (the per-session eval group = the eval's `groupName`), `index`, `data` / `target` / `executor_output` / `scores` / `metadata` (JSON strings; `scores` is `{name: number}`), `trace_id`, `trace_metadata` (mirrors the datapoint trace's metadata; note eval traces do NOT carry `rollout.session_id` — that lives on the evaluation entity, not the spans), `created_at`.
 - **`spans`** — `trace_id`, `name`, `span_type`, `input` / `output`, `status`, `attributes` (JSON string), `start_time`.
 
 JSON columns are guaranteed valid objects — use `simpleJSONExtract*` (fast) or `JSONExtract*` (nested) in-query. `input` / `output` / `agent_input` / `payload` may be raw strings; try JSON, fall back. Use `ILIKE` on `input` / `output`.
