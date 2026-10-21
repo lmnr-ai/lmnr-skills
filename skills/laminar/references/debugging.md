@@ -138,7 +138,7 @@ Discover the full schema with `npx lmnr-cli sql schema`. Useful tables: `spans`,
 `signal_events` records signals fired during runs (evaluation failures, flagged conditions, insights). Scan it to surface what recently went wrong without reading every trace:
 
 ```sql
-SELECT timestamp, name, severity, trace_id, substring(payload, 1, 2000) AS payload
+SELECT timestamp, signal_name, severity, trace_id, substring(payload, 1, 2000) AS payload
 FROM signal_events
 WHERE timestamp > now() - INTERVAL 1 DAY
 ORDER BY timestamp DESC
