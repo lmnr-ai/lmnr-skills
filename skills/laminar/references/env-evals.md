@@ -49,7 +49,8 @@ lmnr-cli eval run --remote --attach     # trials in Laminar sandboxes, orchestra
 
 If the user asks why Laminar instead of plain Harbor: the eval itself (tasks, image, agent, verifier) is
 plain Harbor and works without Laminar. Laminar adds full trajectories without converting to Harbor's
-trajectory format, run history and side-by-side diffs shared with the team, eval traces in the same SQL
+trajectory format (when the app is instrumented with Laminar; see "Capturing the agent's trajectory"),
+run history and side-by-side diffs shared with the team, eval traces in the same SQL
 tables as production traces, signals and clusters (which closes the loop in "Turning production data into
 cases"), and managed execution with `--remote`. When bare Harbor is enough (no production tracing in
 Laminar, rare runs, local results are fine), say so; the folder adopts Laminar later without changes.
@@ -111,6 +112,7 @@ evals/
       seed_baseline.*             # (optional) data every case shares
       seed_case.*                 # load this case's data from the uploaded environment/ files
       run_case.*                  # drive the entry point; write result files
+      export_trajectory.*         # (optional) rebuild the agent's trajectory when the app isn't instrumented
   <suite>/                        # e.g. support-agent
     harbor.yaml                   # Harbor JobConfig: agents, datasets, concurrency, ${VAR} secrets
     agent/
@@ -230,6 +232,65 @@ Shape of the installed agent:
 - Import only `harbor`, the standard library and modules inside the suite directory: the class itself runs
   in the Harbor process (on the user's machine or Laminar's orchestrator), not in the container. Anything
   else belongs in the image.
+
+## Capturing the agent's trajectory
+
+The trial trace is only as rich as what the product under test reports. Without a trajectory, the trace
+has a single span for the agent phase: you see the reward, but not the LLM calls and tool calls that led
+to it, which is what you need to debug a failing case. Check which of these applies, in this order.
+
+### The app is instrumented with Laminar (preferred)
+
+If the product calls `Laminar.initialize()` (Python/TS) or `registerTelemetry()` (AI SDK v7+), its spans
+become the trial's trajectory: every LLM call with tokens and cost, and tool calls as `TOOL` spans when
+tools are covered by framework auto-instrumentation or wrapped with `observe` / `@observe`. Nothing to
+convert.
+
+During an eval run, `lmnr-cli` / the plugin set env vars that switch the SDK from sending spans to Laminar
+to dumping them as the trial's trajectory file, which the plugin then attaches to the trial trace. The app
+needs no Laminar API key and no network access to Laminar for this. Make sure that:
+- the app process actually receives those vars: <env var names>. The start script launches the app with
+  `env -i`, so pass them through explicitly;
+- you don't also write a reconstructed trajectory (below), or the agent's steps show up twice.
+
+If the app isn't instrumented, adding Laminar is a production change: propose it to the user rather than
+doing it inside the eval work. It is small, and production traces benefit too (see
+[instrumentation-python.md](instrumentation-python.md), [instrumentation-typescript.md](instrumentation-typescript.md)).
+Some apps can't take it now: another language, another tracing setup, or not this change.
+
+### Not instrumented: reconstruct it from the app's own history
+
+Most products already persist the conversation: to show chat history to the user, for audit, or for the
+agent's own memory. Read the code that renders or replays that history; it tells you where the history
+lives and how tool calls are stored. Common places:
+- message/thread tables behind the chat UI (often with structured parts for tool calls and results);
+- agent run/step/event tables, audit logs;
+- framework state: checkpointers (LangGraph), session stores (agent SDKs), JSONL transcript files;
+- the entry point's response, if it returns the full message list.
+
+After the driver finishes, including on `failed` / `timeout` (partial trajectories are the most useful),
+run a shared exporter (`image/shared/export_trajectory.*`) inside the container. It reads this case's
+history from the store and writes `/logs/agent/trajectory.json` in Harbor's ATIF format, which the plugin
+replays as `LLM` and `TOOL` spans:
+- each message becomes a `step` with `source` (`system` / `user` / `agent`), `message`, and `timestamp`
+  from the row's creation time; `model_name` and `reasoning_content` if the app stores them;
+- history seeded from `case.json` (what happened before the run) gets `is_copied_context: true`, so it is
+  shown but not mistaken for the agent's work;
+- tool calls go into the agent step's `tool_calls` (`tool_call_id`, `function_name`, `arguments`), and their
+  results into `observation.results` with a matching `source_call_id`. If the store has no call ids, generate
+  them and pair calls with results by order. Infer a tool call from side effects (rows it wrote) only when
+  it is unambiguous; otherwise leave it as message text;
+- top-level: `schema_version`, `session_id`, and `agent` (`name`, `version`, `model_name`).
+
+Be explicit about what's missing. Stored history usually lacks token counts, cost, the system prompt, the
+exact prompt of each LLM call (one stored turn may be several calls), retries and per-call latency. Leave
+`metrics` unset rather than estimating, and say in `notes` where the trajectory came from (e.g.
+`"reconstructed from chat_messages"`). In `populate_context_post_run`, validate the file with
+`harbor.models.trajectories.Trajectory` and log (don't fail the trial) if it doesn't parse. Tell the user
+the trajectory is reconstructed and which fields it lacks.
+
+If the app keeps no history at all, the trial has only `result.json` and the service logs. Say so and
+suggest instrumentation.
 
 ## How Harbor actually works (what shapes the design)
 
@@ -419,5 +480,7 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] A positive and a negative case behave as expected; a flipped reference answer scores 0
 - [ ] Logs for every service land in `/logs/agent/`
+- [ ] Trials show the agent's LLM and tool calls: the app is instrumented with Laminar, or a reconstructed
+      `trajectory.json` is written (and the user knows what it lacks)
 - [ ] Runs against the real model
 - [ ] Single container per task, so `lmnr-cli eval run --remote` works without changes
