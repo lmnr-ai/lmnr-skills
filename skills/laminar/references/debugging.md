@@ -40,7 +40,7 @@ A session is a **timeline of blocks**: one block per trace, one per eval run, pl
 - The file is found by walking **up** from the current directory to the nearest one that has it (same rule as `.lmnr/project.json`), so runs from a subdirectory still join the project's session.
 - The file holds `session_id`, the last run's `trace_id`, `replay_trace_id`, `cache_until`, `debugger_url`, and `started_at`. **`session_id` is the single source of truth** — every session command reads it, so they default to "the session you're working on" without arguments.
 
-**Evals join the same session too.** Running an eval under debug — `LMNR_DEBUG=1 npx lmnr eval evals/foo.eval.ts` — stamps the same `rollout.session_id` and lands in the session as an `evaluation` block, right next to your trace runs and notes. One session can interleave agent runs, eval runs, and notes; there is no separate eval command or eval-session file.
+**Evals join the same session too.** Running an eval under debug — `LMNR_DEBUG=1 npx lmnr eval evals/foo.eval.ts` — stamps the same `rollout.session_id` and lands in the session as an `evaluation` block, right next to your trace runs and notes. One session can interleave agent runs, eval runs, and notes; debug evals need no extra command or eval-session file. (Harbor environment evals, run with `lmnr-cli eval run`, are a separate workflow: see [env-evals.md](env-evals.md).)
 
 To start a clean, named session at the top of an investigation, mint one explicitly (resets the file and opens the debugger page):
 
