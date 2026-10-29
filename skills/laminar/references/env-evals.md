@@ -150,7 +150,7 @@ paths, so a missing entry fails `docker build` with "not found" locally first: a
 For `--remote`, `lmnr-cli` builds the image with local Docker for `linux/amd64` and uploads only the layers
 Laminar doesn't have, so order the Dockerfile from rarely to often changing: base image, system packages,
 dependency manifests and their install, then the app source last. An app change then uploads one small
-layer. Without Docker the CLI uploads the included files and Laminar rebuilds the whole image on any change.
+layer. Every mode needs Docker on the machine that runs `lmnr-cli`.
 
 `<suite>/harbor.yaml` is a plain Harbor JobConfig. Relative paths in it resolve from the suite directory,
 and the suite directory is on `PYTHONPATH`, so the agent's `import_path` is relative to it:
