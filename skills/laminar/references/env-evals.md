@@ -131,21 +131,19 @@ evals/
 
 `evals/lmnr.yaml` names each image and how to build it. Paths are relative to `evals/`; `context` is the
 `docker build` context (default: the Dockerfile's directory). Use the repo root so the image can copy the
-app source and migrations from the live tree, and list under `include` exactly the paths the Dockerfile
-copies, relative to the context:
+app source and migrations from the live tree:
 
 ```yaml
 images:
   myapp-evals:
     dockerfile: image/Dockerfile
     context: ..
-    include: [app/, migrations/, pyproject.toml, uv.lock]
 ```
 
-Only `include` paths go into the build; without it the whole context does. Keep the list to what the
-Dockerfile reads and never include `evals/` (Harbor writes run output there). Local runs build from the same
-paths, so a missing entry fails `docker build` with "not found" locally first: add the path and rerun.
-`.dockerignore` still applies inside included directories.
+In the Dockerfile, `COPY` the specific paths the image needs (`COPY app/ /srv/app/`, `COPY migrations/ ...`),
+never `COPY . .` from the repo root: Docker only reads the paths the Dockerfile copies, so a large repo costs
+nothing, while `COPY . .` would bake in all of it, `evals/` and Harbor's run output included. `.dockerignore`
+applies as usual, and `lmnr-cli` never lets `.git` or `.env*` files into a build.
 
 For `--remote`, `lmnr-cli` builds the image with local Docker for `linux/amd64` and uploads only the layers
 Laminar doesn't have, so order the Dockerfile from rarely to often changing: base image, system packages,
@@ -210,7 +208,8 @@ memory_mb = 4096
   can't be expressed as data. Its build context is the task's `environment/` directory, and nothing is
   uploaded at start, so the Dockerfile must `COPY` the case data itself. Prefer `FROM` a public base plus
   the difference; a task can't `FROM` an image that only exists in `lmnr.yaml`.
-- An image name that isn't in `lmnr.yaml` is pulled from its registry, so public images work as-is.
+- An image name that isn't in `lmnr.yaml` is pulled from its registry, so public images work as-is. For
+  `--remote`, `lmnr-cli` pulls it (and builds per-task Dockerfiles) with local Docker and uploads it too.
 
 ## The agent: subclass `BaseInstalledAgent`
 
@@ -486,7 +485,7 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
       the user
 - [ ] Schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
 - [ ] One image from `lmnr.yaml`, referenced by `docker_image`; per-case data in `environment/`, no per-task Dockerfile
-- [ ] The image's `include` lists exactly the paths its Dockerfile copies, and not `evals/`
+- [ ] The image's Dockerfile copies specific paths, never `COPY . .` from the repo root, and not `evals/`
 - [ ] Reference answers only in `tests/`, never in the image or `environment/`
 - [ ] Every secret is a `${VAR}` placeholder; `.env.example` lists them; `.env` is gitignored
 - [ ] The agent imports only `harbor`, the standard library and suite modules, and reads `self.model_name`
