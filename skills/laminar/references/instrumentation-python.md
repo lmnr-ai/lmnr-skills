@@ -3,6 +3,7 @@
 ## Contents
 
 - Install
+- Find the integrations this codebase needs
 - Initialize once
 - Auto-instrumentation control
 - Manual spans with `@observe`
@@ -22,14 +23,29 @@ Detect the dependency manager and install `lmnr`:
 # Poetry        -> poetry add lmnr
 # uv (uv.lock)  -> uv add lmnr
 # requirements.txt -> add `lmnr`, then pip install -r requirements.txt
-# pip directly  -> pip install lmnr   (or: pip install 'lmnr[all]')
+# pip directly  -> pip install lmnr
 ```
 
-If auto-instrumentation is missing spans for a specific provider, install that provider's extra (for example `pip install -U 'lmnr[vertexai]'`). Check the Laminar integrations docs when unsure which extra applies.
+Some integrations need an extra (e.g. `lmnr[<extra>]`). Don't guess which — the integration's docs page (next section) says what to install.
+
+## Find the integrations this codebase needs
+
+Laminar's setup differs per LLM provider SDK, agent framework, and browser-automation library, and those details change between releases. **Do not rely on memory or on examples in this file for integration-specific wiring** — always pull the current guide.
+
+1. **Inventory the AI stack.** Read the dependency manifest (`pyproject.toml`, `requirements*.txt`, `uv.lock`, `poetry.lock`, `setup.py`) and grep the imports in the code that will be traced. Look for:
+   - LLM provider SDKs (e.g. `openai`, `anthropic`, `google-genai`, `cohere`, `litellm`)
+   - Agent / orchestration frameworks (e.g. `langchain`, `langgraph`, `pydantic_ai`, `openai-agents`, `google-adk`, `claude-agent-sdk`, workflow engines)
+   - Browser / computer-use libraries (e.g. `browser-use`, `playwright`, `skyvern`)
+   - Another tracing/observability SDK already in place (OpenTelemetry, Langfuse, etc.)
+2. **Match each one to an integration page.** Fetch the index at https://laminar.sh/docs/integrations.md (full docs index: https://laminar.sh/docs/llms.txt). Integration pages live at `https://laminar.sh/docs/integrations/<name>.md` — the `.md` form returns clean markdown.
+3. **Read every matching page and follow its Python setup** — install extras, initialization options, ordering constraints, and known caveats (e.g. double-tracing when a framework and its underlying provider SDK are both instrumented). Where a page and this file disagree, the page wins.
+4. **Note gaps.** If a library in use has no integration page, instrument its calls manually (see [Custom LLM spans](#custom-llm-spans-and-cost-tracking)) rather than inventing an integration API. If an existing OpenTelemetry or other tracing setup is present, read https://laminar.sh/docs/tracing/otel.md before wiring anything, so each call is traced by only one pipeline.
+
+Integration pages cover integration-specific wiring only; the generic SDK APIs below apply everywhere.
 
 ## Initialize once
 
-Call `Laminar.initialize()` at startup, before traced code runs.
+Call `Laminar.initialize()` at startup, before traced code runs. Add any integration-specific options the integration pages call for.
 
 ```python
 import os
@@ -46,16 +62,16 @@ Laminar.initialize(
 
 ## Auto-instrumentation control
 
-Pass `instruments` to enable a specific set, or `disabled_instruments` to turn some off. `set()` disables all auto-instrumentation.
+By default, Laminar auto-instruments every supported library it finds installed. Pass `instruments` to enable only a specific set, or `disabled_instruments` to turn some off. `instruments=set()` disables all auto-instrumentation.
 
 ```python
 from lmnr import Laminar, Instruments
 
-Laminar.initialize(instruments={Instruments.OPENAI})   # only OpenAI
-# Laminar.initialize(disabled_instruments={Instruments.LANGCHAIN})
+Laminar.initialize(instruments={Instruments.OPENAI})        # only these
+# Laminar.initialize(disabled_instruments={Instruments.OPENAI})  # all except these
 ```
 
-Note: some instruments auto-enable when their library is installed (e.g. `pydantic_ai`, `deepagents`) and auto-disable overlapping raw-provider instrumentors to avoid double-tracing the same call. Pass an explicit `instruments` set or `disabled_instruments` to override.
+Use the integration pages to decide whether an override is needed — some framework instrumentations already disable overlapping provider instrumentors on their own.
 
 ## Manual spans with `@observe`
 
@@ -76,6 +92,8 @@ def run_agent():
 def retrieve_context():
     ...
 ```
+
+If an integration already emits a root span for a call (many agent frameworks do), don't wrap that call in `@observe` just to get a root — that adds a redundant layer. Use `@observe` for your own orchestration steps around it.
 
 ## Manual span context
 
@@ -114,7 +132,7 @@ Categorical, low-cardinality labels (environment, feature flag, outcome).
 
 ## Custom LLM spans and cost tracking
 
-For a custom provider, set `span_type="LLM"` and report usage attributes so cost is tracked.
+For a provider with no integration, set `span_type="LLM"` and report usage attributes so cost is tracked.
 
 ```python
 from lmnr import Attributes, Laminar
@@ -123,7 +141,7 @@ with Laminar.start_as_current_span("llm.call", span_type="LLM", input=prompt):
     response = call_model(prompt)
     Laminar.set_span_output(response.text)
     Laminar.set_span_attributes({
-        Attributes.PROVIDER: "openai",
+        Attributes.PROVIDER: "my-provider",
         Attributes.REQUEST_MODEL: response.model,
         Attributes.RESPONSE_MODEL: response.model,
         Attributes.INPUT_TOKEN_COUNT: response.usage.prompt_tokens,
@@ -146,7 +164,7 @@ with Laminar.start_as_current_span(name="service_b_handler", parent_span_context
     handle_request()
 ```
 
-If the context is missing or invalid, start a new trace — never break the app.
+If the context is missing or invalid, start a new trace — never break the app. Workflow engines may have a dedicated integration that propagates context for you — check the integrations index first.
 
 ## Flushing and shutdown
 
