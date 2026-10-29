@@ -142,11 +142,15 @@ images:
     include: [app/, migrations/, pyproject.toml, uv.lock]
 ```
 
-Only `include` paths leave the machine for a `--remote` run; without it the CLI uploads the whole context.
-A change anywhere in the uploaded files rebuilds the image from scratch, so keep the list to what the
+Only `include` paths go into the build; without it the whole context does. Keep the list to what the
 Dockerfile reads and never include `evals/` (Harbor writes run output there). Local runs build from the same
 paths, so a missing entry fails `docker build` with "not found" locally first: add the path and rerun.
 `.dockerignore` still applies inside included directories.
+
+For `--remote`, `lmnr-cli` builds the image with local Docker for `linux/amd64` and uploads only the layers
+Laminar doesn't have, so order the Dockerfile from rarely to often changing: base image, system packages,
+dependency manifests and their install, then the app source last. An app change then uploads one small
+layer. Without Docker the CLI uploads the included files and Laminar rebuilds the whole image on any change.
 
 `<suite>/harbor.yaml` is a plain Harbor JobConfig. Relative paths in it resolve from the suite directory,
 and the suite directory is on `PYTHONPATH`, so the agent's `import_path` is relative to it:
@@ -196,8 +200,8 @@ memory_mb = 4096
 ```
 
 - **Speed is the main reason.** Every trial starts from the same built image instead of building its own.
-  `lmnr-cli` builds it once per run (locally with Docker; for `--remote` Laminar builds it from the same
-  Dockerfile and caches it by content, so an unchanged image costs nothing). No registry, no tags to bump.
+  `lmnr-cli` builds it once per run with Docker; for `--remote` it uploads only changed layers, so an
+  unchanged image costs nothing. No registry, no tags to bump.
 - **Per-case files still arrive.** When `docker_image` is set and `environment/` has no `Dockerfile` or
   `docker-compose.yaml`, Harbor uploads the contents of `environment/` into the workdir after the container
   starts. That is how `case.json` reaches a shared image. Putting a Dockerfile back into `environment/`
