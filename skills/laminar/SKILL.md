@@ -13,7 +13,7 @@ Read this before instrumenting anything — it drives every decision below.
 
 - **One trace = one unit of work you want to analyze end-to-end** (a request, a turn, a job, a pipeline run).
 - **A trace is a tree of spans.** Spans are typed (`LLM`, `TOOL`, `DEFAULT`, etc.). Types drive UI behavior — the transcript view is high-signal and focuses on `LLM` and `TOOL` spans.
-- **Auto-instrumentation** captures common LLM/tool libraries (OpenAI, Anthropic, Vercel AI SDK, LangChain, and more). You still add first-party spans around your own orchestration so traces are readable.
+- **Auto-instrumentation** captures supported LLM provider SDKs, agent frameworks, and browser libraries — each has its own setup guide at https://laminar.sh/docs/integrations. You still add first-party spans around your own orchestration so traces are readable.
 - **Great traces have:** one clear root span per trace boundary; a few meaningful child spans for major steps; stable, low-cardinality names; context for filtering (`userId`, `sessionId`, metadata, tags); and privacy controls so secrets/PII are never recorded.
 
 **Cardinality rule (applies everywhere):** never put dynamic IDs (request IDs, user IDs, document IDs) in span names or tags. Span names and tags stay stable and low-cardinality; identifiers go in metadata or the dedicated `userId`/`sessionId` fields.
@@ -24,7 +24,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 
 | The user wants to... | Read |
 |----------------------|------|
-| Add Laminar tracing to a TypeScript/JS/Node/Next.js codebase | [references/instrumentation-typescript.md](references/instrumentation-typescript.md) |
+| Add Laminar tracing to a TypeScript/JS/Node codebase | [references/instrumentation-typescript.md](references/instrumentation-typescript.md) |
 | Add Laminar tracing to a Python codebase | [references/instrumentation-python.md](references/instrumentation-python.md) |
 | Use `lmnr-cli` / `lmnr` CLI (sql, datasets, debugger, eval, cursor rules) | [references/cli.md](references/cli.md) |
 | Query traces, spans, signal events, or clusters with the SQL API | [references/sql-query-api.md](references/sql-query-api.md) |
@@ -44,7 +44,7 @@ Copy this checklist and track progress:
 - [ ] 2. Install the SDK with the detected package manager.
 - [ ] 3. Wire LMNR_PROJECT_API_KEY from env; add it to .env.example/README (never commit secrets).
 - [ ] 4. Call Laminar.initialize() once, at the earliest safe startup point.
-- [ ] 5. Confirm auto-instrumentation captures the LLM/tool libraries in use.
+- [ ] 5. Identify the LLM SDKs/frameworks in use; fetch each one's guide from https://laminar.sh/docs/integrations and follow it.
 - [ ] 6. Add first-party spans (observe / @observe) around orchestration; set user/session/metadata/tags early.
 - [ ] 7. Apply privacy controls to sensitive inputs/outputs.
 - [ ] 8. Run one representative flow; verify the trace tree, transcript view, and filters in the UI.
