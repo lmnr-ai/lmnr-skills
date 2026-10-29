@@ -131,14 +131,22 @@ evals/
 
 `evals/lmnr.yaml` names each image and how to build it. Paths are relative to `evals/`; `context` is the
 `docker build` context (default: the Dockerfile's directory). Use the repo root so the image can copy the
-app source and migrations from the live tree, and keep `evals/` out of it with a `.dockerignore`:
+app source and migrations from the live tree, and list under `include` exactly the paths the Dockerfile
+copies, relative to the context:
 
 ```yaml
 images:
   myapp-evals:
     dockerfile: image/Dockerfile
     context: ..
+    include: [app/, migrations/, pyproject.toml, uv.lock]
 ```
+
+Only `include` paths leave the machine for a `--remote` run; without it the CLI uploads the whole context.
+A change anywhere in the uploaded files rebuilds the image from scratch, so keep the list to what the
+Dockerfile reads and never include `evals/` (Harbor writes run output there). Local runs build from the same
+paths, so a missing entry fails `docker build` with "not found" locally first: add the path and rerun.
+`.dockerignore` still applies inside included directories.
 
 `<suite>/harbor.yaml` is a plain Harbor JobConfig. Relative paths in it resolve from the suite directory,
 and the suite directory is on `PYTHONPATH`, so the agent's `import_path` is relative to it:
@@ -474,6 +482,7 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
       the user
 - [ ] Schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
 - [ ] One image from `lmnr.yaml`, referenced by `docker_image`; per-case data in `environment/`, no per-task Dockerfile
+- [ ] The image's `include` lists exactly the paths its Dockerfile copies, and not `evals/`
 - [ ] Reference answers only in `tests/`, never in the image or `environment/`
 - [ ] Every secret is a `${VAR}` placeholder; `.env.example` lists them; `.env` is gitignored
 - [ ] The agent imports only `harbor`, the standard library and suite modules, and reads `self.model_name`
