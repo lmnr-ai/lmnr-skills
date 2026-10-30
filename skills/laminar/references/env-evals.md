@@ -48,6 +48,8 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
   the sandbox, so debug a failure that only happens remotely from the trial's trace in Laminar.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
   `--env KEY[=VALUE]` (repeatable) adds an agent env var, and a bare `KEY` is read from your environment.
+- `--task` matches task directory names. Only the tasks a run includes (under a `datasets` path or listed
+  in `tasks`, after `--task`) get their images built and their `${VAR}`s required.
 - Each suite is one evaluation group in Laminar. Every run creates a new evaluation in its suite's group,
   so local and remote runs of a suite are charted together.
 - `--json` prints `{mode, suites, failed, url}`, or `{mode: "remote", uploadId, sandboxId, suites, url}`
