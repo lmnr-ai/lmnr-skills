@@ -33,10 +33,9 @@ lmnr-cli eval run                       # every suite in ./evals, trials on loca
 lmnr-cli eval run --suite support --task "refund-*" --n-attempts 3
 lmnr-cli eval run --task refund-double-charge   # just one case
 lmnr-cli eval run --remote              # upload, run in Laminar, return immediately
-lmnr-cli eval run --remote --attach     # Harbor runs here, trials in Laminar sandboxes
 ```
 
-Run from the repo root: `.env` / `.env.local` are read from the current directory. Every mode needs Docker
+Run from the repo root: `.env` / `.env.local` are read from the current directory. Both modes need Docker
 on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
 
 - **Local (default)** is the iteration loop: run it after every change. It needs `uv`, Docker, and
@@ -45,10 +44,8 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
   Docker for `linux/amd64` (`lmnr.yaml` images, per-task `environment/Dockerfile`s, public `docker_image`s),
   uploads only the layers Laminar doesn't have, and starts the run in a Laminar sandbox; every trial gets
   its own sandbox. It needs `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI) and returns once the run has
-  started; results appear in the project's evaluations as trials finish.
-- **`--remote --attach`** runs Harbor on this machine with `uv` and the trials in Laminar sandboxes, waits
-  for the results, and keeps the job output local. It needs Docker, `uv` and `LMNR_PROJECT_API_KEY` (even
-  when logged in). Use it to debug a failure that only happens remotely.
+  started; results appear in the project's evaluations as trials finish. Harbor's job output stays in
+  the sandbox, so debug a failure that only happens remotely from the trial's trace in Laminar.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
   `--env KEY[=VALUE]` (repeatable) adds an agent env var, and a bare `KEY` is read from your environment.
 - Each suite is one evaluation group in Laminar. Every run creates a new evaluation in its suite's group,
@@ -491,7 +488,7 @@ missing them can start but silently never bind its port.
 - **Secret scrubbing:** Harbor redacts agent env values from its output files. A very short value
   (a one-character placeholder like `x`) turns every occurrence of that character in the job output into
   `[REDACTED]` (`ma[REDACTED]_timeout_sec`), so keep placeholder values long and distinctive.
-- **Job output:** `evals/<suite>/jobs/<timestamp>/` for local and attached runs. Each trial has `agent/`
+- **Job output:** `evals/<suite>/jobs/<timestamp>/` for local runs. Each trial has `agent/`
   (your logs, `result.json`) and `verifier/` (`reward.txt`, `test-stdout.txt`); `exception.txt` holds the
   agent traceback.
 
