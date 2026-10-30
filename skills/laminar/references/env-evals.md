@@ -61,7 +61,7 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
 **Remote limits and image requirements:**
 - One container per trial (no docker-compose tasks); `cpus`/`memory_mb` above the sandbox cap are clamped;
   a run that exceeds the deployment's time limit is stopped.
-- `--remote` packs the evals folder (max 100 MiB). Symlinks are skipped, so are directories named `jobs`,
+- `--remote` packs the evals folder (max 1 GiB). Symlinks are skipped, so are directories named `jobs`,
   `.git`, `node_modules`, virtualenvs and caches; `.env*` files are never packed. Keep large fixtures out.
 - Images need `tar`, `gzip` and `bash` (and `su` when the task runs as a non-root user). They are built for
   `linux/amd64`, emulated (slowly) on ARM Macs; architecture-specific downloads should use `ARG TARGETARCH`.
