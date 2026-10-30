@@ -47,9 +47,9 @@ SELECT only. Queries are scoped to your project automatically — no tenant filt
 
 - **Traces and spans:** `spans`, `traces`, `trace_outputs` (extracted agent output messages), `logs`
 - **Signals:** `signals`, `signal_events`, `signal_events_all` (L0-inclusive), `signal_runs`, `clusters`, `event_clusters_all`
-- **Datasets and evals:** `datasets`, `dataset_datapoints`, `dataset_datapoint_versions`, `evaluations`, `evaluation_datapoints`, `labeling_queue_items`
+- **Datasets and evals:** `datasets`, `dataset_datapoints`, `dataset_datapoint_versions`, `evaluations`, `evaluation_trials` (one row per trial; `evaluation_datapoints` is an alias), `labeling_queue_items`
 
-`signals`, `evaluations`, and `datasets` hold the definitions (`signals` adds `prompt`, `structured_output_schema`, `llm_model`, `version`; `evaluations` adds `group_id`, `metadata`). For just the name, skip the join: `signal_events.signal_name`, `evaluation_datapoints.evaluation_name`, `dataset_datapoints.dataset_name`. Filtering on a name scans the whole project, so filter by id when you have it. On self-hosted, these tables and name columns error until `CLICKHOUSE_POSTGRES_USER` / `CLICKHOUSE_POSTGRES_PASSWORD` are set.
+`signals`, `evaluations`, and `datasets` hold the definitions (`signals` adds `prompt`, `structured_output_schema`, `llm_model`, `version`; `evaluations` adds `group_id`, `metadata`). For just the name, skip the join: `signal_events.signal_name`, `evaluation_trials.evaluation_name`, `dataset_datapoints.dataset_name`. Filtering on a name scans the whole project, so filter by id when you have it. On self-hosted, these tables and name columns error until `CLICKHOUSE_POSTGRES_USER` / `CLICKHOUSE_POSTGRES_PASSWORD` are set.
 
 Anything else is rejected (`Table 'x' is not allowed`), as is a column that isn't on the table — there is no `events` or `tags` table, for instance; tags are the `tags` / `trace_tags` columns on `traces`. Don't guess: **`lmnr-cli sql schema` prints the live schema**. `project_id` is never queryable — the query is already scoped.
 
@@ -59,7 +59,7 @@ Anything else is rejected (`Table 'x' is not allowed`), as is a column that isn'
 - **Avoid joins** — run multiple queries and combine in your app. Two exceptions: `traces` carries the trace's signal events and clusters as array columns, so read those instead of joining (see below), and joining a definition table on its id (`signals.id = signal_id`) is cheap.
 - **Bucket by interval** with `toStartOfInterval` / `toStartOfDay` / `toStartOfHour`.
 - **JSON is stored as strings** — use `simpleJSONExtract*` for fast access and `simpleJSONHas` to check keys.
-- **Common JSON columns:** `spans` → `input`, `output`, `attributes`; `evaluation_datapoints` → `data`, `target`, `metadata`, `executor_output`, `scores`; `dataset_datapoints` → `data`, `target`, `metadata`.
+- **Common JSON columns:** `spans` → `input`, `output`, `attributes`; `evaluation_trials` → `data`, `target`, `metadata`, `executor_output`, `scores`; `dataset_datapoints` → `data`, `target`, `metadata`.
 
 ## Signals and clusters
 
