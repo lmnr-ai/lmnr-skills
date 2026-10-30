@@ -1,6 +1,6 @@
 ---
 name: laminar
-description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces/signal events/clusters, debugging an agent under LMNR_DEBUG (recording runs, replaying cached LLM calls, annotating debug sessions), or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
+description: "Instrument code with Laminar tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools. Use when a user mentions Laminar, lmnr, the @lmnr-ai/lmnr or lmnr SDK, lmnr-cli, adding LLM/agent tracing or spans to a TypeScript or Python codebase, viewing traces in the Laminar UI, querying spans/traces/signal events/clusters, debugging an agent under LMNR_DEBUG (recording runs, replaying cached LLM calls, annotating debug sessions), building environment evals with Harbor (isolated containers running the real app, seeded per case from production data), or moving from Langfuse, LangSmith, Helicone, or OpenTelemetry to Laminar."
 ---
 
 # Laminar
@@ -26,12 +26,13 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 |----------------------|------|
 | Add Laminar tracing to a TypeScript/JS/Node codebase | [references/instrumentation-typescript.md](references/instrumentation-typescript.md) |
 | Add Laminar tracing to a Python codebase | [references/instrumentation-python.md](references/instrumentation-python.md) |
-| Use `lmnr-cli` / `lmnr` CLI (sql, datasets, debugger, eval, cursor rules) | [references/cli.md](references/cli.md) |
+| Use `lmnr-cli` / `lmnr` CLI (setup, login, sql, datasets, debug sessions); for `lmnr-cli eval run` see env-evals.md below | [references/cli.md](references/cli.md) |
 | Query traces, spans, signal events, or clusters with the SQL API | [references/sql-query-api.md](references/sql-query-api.md) |
 | Migrate from Langfuse / LangSmith / Helicone / OpenTelemetry | [references/migration.md](references/migration.md) |
 | Debug an agent: record under `LMNR_DEBUG`, replay cached LLM calls, annotate sessions | [references/debugging.md](references/debugging.md) |
 | Run a production-failure fix-and-verify eval loop (record → eval → verify) inside a debug session | [references/eval-loop.md](references/eval-loop.md) |
 | Iteratively optimize an agent against an eval score (prompt/pipeline tuning over many runs) — ALSO read whenever a debugging or eval-loop task turns into score-chasing | [references/optimization.md](references/optimization.md) |
+| Build environment evals with Harbor and run them with `lmnr-cli eval run` (locally or `--remote`): the real app and services in isolated containers, each case seeded with (production-derived) data, the outcome graded | [references/env-evals.md](references/env-evals.md) |
 
 The cross-cutting concepts shared by both SDKs — span context propagation, tags, metadata, sessions, privacy controls, custom LLM cost tracking, flushing — live in the two instrumentation files (one per language) so each is complete on its own.
 
