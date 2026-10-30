@@ -50,7 +50,7 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
   `--env KEY[=VALUE]` (repeatable) adds an agent env var, and a bare `KEY` is read from your environment.
 - Each suite is one evaluation group in Laminar. Every run creates a new evaluation in its suite's group,
   so local and remote runs of a suite are charted together.
-- `--json` prints `{mode, suites, failed, url}`, or `{mode: "detached", uploadId, sandboxId, suites, url}`
+- `--json` prints `{mode, suites, failed, url}`, or `{mode: "remote", uploadId, sandboxId, suites, url}`
   for `--remote`. Exit codes: `16` invalid evals folder or archive too large, `17` `uv`/`docker` missing,
   `18` a suite's `harbor run` failed (the other suites still run), `19` an unset `${VAR}`, `20` a Docker
   build/save/pull failed or an image has the wrong platform.
@@ -62,7 +62,7 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
   `.git`, `node_modules`, virtualenvs and caches; `.env*` files are never packed. Keep large fixtures out.
 - Images need `tar`, `gzip` and `bash` (and `su` when the task runs as a non-root user). They are built for
   `linux/amd64`, emulated (slowly) on ARM Macs; architecture-specific downloads should use `ARG TARGETARCH`.
-- Detached runs drop `LMNR_*` vars from the agent env. Against self-hosted Laminar, set `LMNR_GRPC_PORT`
+- Remote runs drop `LMNR_*` vars from the agent env. Against self-hosted Laminar, set `LMNR_GRPC_PORT`
   (shell or `.env`) or the trial traces don't arrive.
 - Soft guidance: sandboxes per project are capped (50 by default), so a higher `--n-concurrent` queues and
   retries rather than running more at once. Harbor's `[environment] build_timeout_sec` (default 600)
