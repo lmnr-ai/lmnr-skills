@@ -69,7 +69,7 @@ WHERE signal_id = toUUID('<signal_id>')
 LIMIT 50
 ```
 
-Note why you chose each trace as you go; the user gets it at the end ("Report back").
+Note why you chose each trace as you go; it goes into the suite's README ("Report back").
 
 ## Turn a trace into a case
 
@@ -153,13 +153,19 @@ reason (read its verifier output).
 
 ## Report back
 
-Keep it short. Tell the user:
+The full record goes in the suite's `README.md`: one row per case with its name, source trace, why it was
+chosen and what the verifier checks, controls and synthetic cases marked. It outlives the conversation and
+can be as long as the suite.
 
-1. One line per case: its name, its source trace (linked), why it was chosen and what the verifier checks.
-   Mark controls and synthetic cases.
+What you tell the user stays short however many cases there are:
+
+1. The cases, grouped: one line per group of cases that share a failure mode and a check (usually a leaf
+   cluster), with how many cases it has, why those traces were chosen, what the verifier checks, and one or
+   two source traces linked as examples. Count controls and synthetic cases separately. With only a handful
+   of cases, a line per case is fine.
 2. The baseline: how many cases reproduce the failure, with a link to the evaluation.
 3. Anything that limits what the eval measures: mocks, a reconstructed trajectory, an inferred schema,
    traces that couldn't be used and why.
+4. Where the full list is (the README).
 
-Put the same per-case list in the suite's `README.md` (and the pull request description, if you open one)
-so it outlives the conversation.
+A pull request description, if you open one, takes the same short summary and points to the README.
