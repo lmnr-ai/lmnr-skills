@@ -32,7 +32,7 @@ same entry point, different data. Stay compatible with Harbor's task format, but
 lmnr-cli eval run                       # every suite in ./evals, trials on local Docker
 lmnr-cli eval run --suite support --task "refund-*" --n-attempts 3
 lmnr-cli eval run --task refund-double-charge   # just one case
-lmnr-cli eval run --remote              # upload, run in Laminar, return immediately
+lmnr-cli eval run --remote              # upload, run in Laminar, print the run's log until it ends
 ```
 
 Run from the repo root: `.env` / `.env.local` are read from the current directory. Both modes need Docker
@@ -40,22 +40,29 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
 
 - **Local (default)** is the iteration loop: run it after every change. It needs `uv`, Docker, and
   `LMNR_PROJECT_API_KEY` (`lmnr-cli setup` writes it to `.env`).
-- **`--remote`** scales out. `lmnr-cli` builds or pulls every image the selected suites need with local
-  Docker for `linux/amd64` (`lmnr.yaml` images, per-task `environment/Dockerfile`s, public `docker_image`s),
-  uploads only the layers Laminar doesn't have, and starts the run in a Laminar sandbox; every trial gets
-  its own sandbox. It needs `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI) and returns once the run has
-  started; results appear in the project's evaluations as trials finish. Harbor's job output stays in
-  the sandbox, so debug a failure that only happens remotely from the trial's trace in Laminar.
+- **`--remote`** scales out, and leaves everything needed to debug a run in Laminar, where the whole team
+  can read it. `lmnr-cli` builds or pulls every image the selected suites need with local Docker for
+  `linux/amd64` (`lmnr.yaml` images, per-task `environment/Dockerfile`s, public `docker_image`s), uploads
+  only the layers Laminar doesn't have, and starts the run in a Laminar sandbox; every trial gets its own
+  sandbox. It needs `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI), then prints the run's log (Harbor's
+  output) until the run ends and exits with its outcome. Ctrl-C stops following; the run goes on. Results
+  appear in the project's evaluations as trials finish. On the evaluation page each trial has its trace, its
+  task folder (Task) and its Harbor output (Log: your `/logs/agent/` files, the verifier output,
+  `exception.txt`), so debug a remote failure there.
+- **Which to use:** local for a tight loop on one machine; `--remote` for many cases at once, for runs
+  someone else will look at, and when the machine can't run the stacks.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
   `--env KEY[=VALUE]` (repeatable) adds an agent env var, and a bare `KEY` is read from your environment.
 - `--task` matches task directory names. Only the tasks a run includes (under a `datasets` path or listed
   in `tasks`, after `--task`) get their images built and their `${VAR}`s required.
 - Each suite is one evaluation group in Laminar. Every run creates a new evaluation in its suite's group,
   so local and remote runs of a suite are charted together.
-- `--json` prints `{mode, suites, failed, url}`, or `{mode: "remote", uploadId, sandboxId, suites, url}`
-  for `--remote`. Exit codes: `16` invalid evals folder or archive too large, `17` `uv`/`docker` missing,
-  `18` a suite's `harbor run` failed (the other suites still run), `19` an unset `${VAR}`, `20` a Docker
-  build/save/pull failed or an image has the wrong platform.
+- `--json` prints `{mode, suites, failed, url}`, or for `--remote`, once the run ends,
+  `{mode: "remote", uploadId, sandboxId, suites, url, evaluations, exitCode}` (`evaluations` lists each
+  suite's evaluation link). Exit codes: `16` invalid evals folder or archive too large, `17` `uv`/`docker`
+  missing, `18` a suite's `harbor run` failed (the other suites still run), `19` an unset `${VAR}`, `20` a
+  Docker build/save/pull failed or an image has the wrong platform, `21` a `--remote` run failed before its
+  suites ran or its sandbox was lost.
 
 **Remote limits and image requirements:**
 - One container per trial (no docker-compose tasks); `cpus`/`memory_mb` above the sandbox cap are clamped;
@@ -346,6 +353,9 @@ During an eval run the plugin sets `LMNR_TRAJECTORY_PATH=/logs/agent/trajectory.
 With it, the SDK writes its spans to that file instead of sending them to Laminar, and the plugin attaches
 the file to the trial trace. The app needs no Laminar API key and no network access to Laminar for this.
 Make sure that:
+- the app's SDK writes the file: `@lmnr-ai/lmnr` 0.8.54 or later, `lmnr` (Python) 0.8.4 or later. Older
+  versions, and apps that export through a plain OpenTelemetry exporter, write nothing, and the trial has no
+  trajectory. Upgrading is a production change: propose it, or reconstruct the trajectory (below);
 - the app process actually receives `LMNR_TRAJECTORY_PATH` (forward it if the start script uses `env -i`);
 - you don't also write a reconstructed trajectory (below), or the agent's steps show up twice.
 
@@ -495,16 +505,13 @@ missing them can start but silently never bind its port.
   agent traceback.
 
 ## Turning production data into cases
-The loop this setup exists for:
-1. Select production traces/records with the signal of interest (a detected failure, a flagged event) and a
-   few that were correctly *not* flagged: `lmnr-cli signal list` for the signal, then `lmnr-cli sql query`
-   over `signal_events` (see "Signals and clusters" in [sql-query-api.md](sql-query-api.md)).
-2. Export the minimal input for each into the case data (`case.json`: messages, tool calls, spans, records).
-   Strip or replace PII and secrets with plausible values; keep structure and ordering; rebase timestamps.
-3. Set the reference answer from the production label after a human check. Keep positive and negative cases
-   paired against the same prompt/config.
-4. Copy a task directory, drop in the new case data and reference answer, run
-   `lmnr-cli eval run --task <new-case>`, then the whole suite, and commit.
+The loop this setup exists for: pick production traces a signal flagged (and a few it correctly didn't),
+turn each into a case's data, grade whether the failure recurs, and add the case as a directory copy. To
+build cases from a cluster or a signal's events (choosing and deduplicating traces, mapping a trace onto
+seed data, the verifier, what to report), read [evals-from-clusters.md](evals-from-clusters.md).
+
+Once the harness exists, adding a case is: copy a task directory, drop in the new case data and reference
+answer, run `lmnr-cli eval run --task <new-case>`, then the whole suite, and commit.
 
 ### When the harness doesn't fit
 Adding a case should not need harness changes. If one does, first try to generalise the shared seed/driver
