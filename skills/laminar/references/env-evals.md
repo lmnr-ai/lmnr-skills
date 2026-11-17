@@ -89,13 +89,17 @@ truth: cases are added there without touching the repo, and a version re-runs ag
 ```bash
 lmnr-cli eval push support-bot          # scripts + every local task set become the latest versions
 lmnr-cli eval push support-bot/refunds  # one task set
-lmnr-cli eval pull support-bot          # scripts + every task set; support-bot/refunds@3 for one version
+lmnr-cli eval pull support-bot --all    # every task set (+ scripts if evals/support-bot/ has none)
+lmnr-cli eval pull support-bot/refunds  # one task set; support-bot/refunds@3 for one version
+lmnr-cli eval pull support-bot          # only the scripts Laminar stored, to commit to the repo
 lmnr-cli eval list                      # agents, task sets, latest versions
 ```
 
 - `pull` merges task by task with your copy: tasks changed only in Laminar are updated, tasks changed only
   locally are kept, and a task changed on both sides fails (exit `22`) before anything is written. The
   version a copy is based on is in `task_sets/<set>/.lmnr.json`.
+- `pull <agent>` writes Laminar's scripts over `evals/<agent>/`; if a local file differs it fails (exit
+  `22`) and lists them, unless `--force`.
 - `push` sends that base; anything pushed since is merged in first, the same way. On a conflict, move your
   copy of that task aside, pull, and re-apply your change.
 - **A run never publishes.** It records the exact versions it used (a changed local copy as a snapshot),

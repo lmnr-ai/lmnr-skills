@@ -144,7 +144,7 @@ reason (read its verifier output).
   retention, code not in the repo), stop and say what is missing. The fix is often better instrumentation,
   not an eval.
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
-- **An existing evals folder.** `lmnr-cli eval pull <agent>` first, then add the cases to that agent: a
+- **An existing evals folder.** `lmnr-cli eval pull <agent> --all` first, then add the cases to that agent: a
   new task set named after the cluster, unless an existing set covers this failure mode. Reuse its image,
   seed and driver code ("When the harness doesn't fit" in env-evals.md).
 - **The trajectory.** The cluster exists, so production sends traces to Laminar, but maybe not in a way an
