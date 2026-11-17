@@ -85,7 +85,8 @@ say so.
 The **agent scripts** (all of `evals/<agent>/` but `task_sets/`) depend on the app's code, so they live in
 the repo and change with it: `eval run` only uses the repo's copy. The **task sets** are data, stored and
 versioned in Laminar, their source of truth: cases are added there without touching the repo, and a
-version re-runs against any later agent. The repo pins the version each set runs at, in `agent.yaml`:
+version re-runs against any later agent. Laminar has no agents: task-set names are project-wide (two
+agents can't both have `smoke`). The repo pins the version each set runs at, in `agent.yaml`:
 
 ```yaml
 task_sets:          # edited by hand; CI runs these versions
@@ -93,17 +94,17 @@ task_sets:          # edited by hand; CI runs these versions
 ```
 
 ```bash
-lmnr-cli eval pull support-bot --all    # every task set (+ scripts if evals/support-bot/ has none)
+lmnr-cli eval pull support-bot --all    # the sets agent.yaml pins (+ scripts if there are none)
 lmnr-cli eval pull support-bot/refunds  # one task set (latest); support-bot/refunds@3 for one version
 lmnr-cli eval push support-bot/refunds  # publish it as the latest version; support-bot = every local set
 lmnr-cli eval pull support-bot          # the scripts the last run used, to commit to the repo
-lmnr-cli eval list                      # agents, task sets, latest versions
+lmnr-cli eval list                      # the project's task sets, latest versions
 ```
 
 - Which version a run uses, per set: `--task-set refunds@4` (or `@latest`), else a local copy in
   `task_sets/refunds/` as is, else the pin, else (only when named with `--task-set`) the latest. A bare
   run takes the pinned sets plus local copies and skips the rest.
-- `pull` writes `evals/<agent>/.gitignore` with `task_sets/`: local copies are working copies, not
+- `pull` and `push` write `evals/<agent>/.gitignore` with `task_sets/`: local copies are working copies, not
   committed, so CI runs the pins. Commit that file.
 - `pull` merges task by task with your copy: tasks changed only in Laminar are updated, tasks changed only
   locally are kept, and a task changed on both sides fails (exit `22`) before anything is written. The
@@ -111,8 +112,8 @@ lmnr-cli eval list                      # agents, task sets, latest versions
 - `push` sends that base; anything pushed since is merged in first, the same way. On a conflict, move your
   copy of that task aside, pull, and re-apply your change. It prints the new version: bump the pin in
   `agent.yaml` to run it in CI.
-- **A run never publishes.** It records the exact versions it used (a changed local copy as a snapshot)
-  and the scripts, so each evaluation links to what it ran; only `push` moves the latest.
+- **A run never publishes.** Its evaluation keeps the task files and scripts it ran, and links to a
+  task set version only when the copy matches a pushed one exactly; only `push` creates versions.
 - Commit the agent scripts: a run without `evals/<agent>/agent.yaml` fails (exit `23`). `pull <agent>`
   fetches the scripts the last run used (e.g. ones the Laminar agent wrote); a local file that differs
   fails it (exit `22`) unless `--force`.
