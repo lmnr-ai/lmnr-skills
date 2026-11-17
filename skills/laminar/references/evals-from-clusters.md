@@ -157,8 +157,9 @@ reason (read its verifier output).
 Name a new task set after the cluster (letters, digits, `.`, `_`, `-`). Once the baseline run shows the
 cases reproduce (or fail for the reason you report), publish them with `lmnr-cli eval push <agent>/<set>`:
 task sets are stored and versioned in Laminar, so pushing is what makes the cases available to the team
-and to later runs. If the harness needed new or changed agent scripts, those belong in the repo: commit
-them (or hand the user the diff), and `lmnr-cli eval push <agent>` when the repo has none.
+and to later runs. Then pin the version `push` printed in `agent.yaml` (`task_sets: {<set>: <version>}`) so
+runs and CI use it. New or changed agent scripts belong in the repo, committed with the pin: `eval run`
+only uses the repo's copy.
 
 ## Report back
 

@@ -83,30 +83,39 @@ say so.
 ## Task sets: versioned in Laminar
 
 The **agent scripts** (all of `evals/<agent>/` but `task_sets/`) depend on the app's code, so they live in
-the repo and change with it. The **task sets** are data, stored and versioned in Laminar, their source of
-truth: cases are added there without touching the repo, and a version re-runs against any later agent.
+the repo and change with it: `eval run` only uses the repo's copy. The **task sets** are data, stored and
+versioned in Laminar, their source of truth: cases are added there without touching the repo, and a
+version re-runs against any later agent. The repo pins the version each set runs at, in `agent.yaml`:
+
+```yaml
+task_sets:          # edited by hand; CI runs these versions
+  refunds: 3
+```
 
 ```bash
-lmnr-cli eval push support-bot          # scripts + every local task set become the latest versions
-lmnr-cli eval push support-bot/refunds  # one task set
 lmnr-cli eval pull support-bot --all    # every task set (+ scripts if evals/support-bot/ has none)
-lmnr-cli eval pull support-bot/refunds  # one task set; support-bot/refunds@3 for one version
-lmnr-cli eval pull support-bot          # only the scripts Laminar stored, to commit to the repo
+lmnr-cli eval pull support-bot/refunds  # one task set (latest); support-bot/refunds@3 for one version
+lmnr-cli eval push support-bot/refunds  # publish it as the latest version; support-bot = every local set
+lmnr-cli eval pull support-bot          # the scripts the last run used, to commit to the repo
 lmnr-cli eval list                      # agents, task sets, latest versions
 ```
 
+- Which version a run uses, per set: `--task-set refunds@4` (or `@latest`), else a local copy in
+  `task_sets/refunds/` as is, else the pin, else (only when named with `--task-set`) the latest. A bare
+  run takes the pinned sets plus local copies and skips the rest.
+- `pull` writes `evals/<agent>/.gitignore` with `task_sets/`: local copies are working copies, not
+  committed, so CI runs the pins. Commit that file.
 - `pull` merges task by task with your copy: tasks changed only in Laminar are updated, tasks changed only
   locally are kept, and a task changed on both sides fails (exit `22`) before anything is written. The
   version a copy is based on is in `task_sets/<set>/.lmnr.json`.
-- `pull <agent>` writes Laminar's scripts over `evals/<agent>/`; if a local file differs it fails (exit
-  `22`) and lists them, unless `--force`.
 - `push` sends that base; anything pushed since is merged in first, the same way. On a conflict, move your
-  copy of that task aside, pull, and re-apply your change.
-- **A run never publishes.** It records the exact versions it used (a changed local copy as a snapshot),
-  so each evaluation links to the tasks it ran; only `push` moves the latest. A task set without a local
-  copy runs Laminar's latest.
-- Commit the agent scripts. Without a local agent directory a run uses Laminar's copy from the last
-  `push`, but image `context`s outside the agent directory don't exist there.
+  copy of that task aside, pull, and re-apply your change. It prints the new version: bump the pin in
+  `agent.yaml` to run it in CI.
+- **A run never publishes.** It records the exact versions it used (a changed local copy as a snapshot)
+  and the scripts, so each evaluation links to what it ran; only `push` moves the latest.
+- Commit the agent scripts: a run without `evals/<agent>/agent.yaml` fails (exit `23`). `pull <agent>`
+  fetches the scripts the last run used (e.g. ones the Laminar agent wrote); a local file that differs
+  fails it (exit `22`) unless `--force`.
 
 ## Principles
 
@@ -168,7 +177,8 @@ Work through these in order; each step links to the section with the details.
 9. **Check the trajectory** in the trial's trace: LLM and tool calls should be visible ("Capturing the
    agent's trajectory").
 10. **Optionally run `--remote`** once to confirm the folder works in Laminar sandboxes ("Running").
-11. **Publish** with `lmnr-cli eval push <agent>` and commit the agent scripts ("Task sets").
+11. **Publish** with `lmnr-cli eval push <agent>`, pin the versions in `agent.yaml`, and commit the agent
+    scripts ("Task sets").
 
 ## Data isolation
 
@@ -205,7 +215,8 @@ evals/
         run_case.*                # drive the entry point; write result files
         verify.*                  # (optional) shared grading logic each test.sh calls
         export_trajectory.*       # (optional) rebuild the agent's trajectory when the app isn't instrumented
-    task_sets/                    # stored and versioned in Laminar ("Task sets")
+    .gitignore                    # task_sets/ (written by eval pull)
+    task_sets/                    # working copies of Laminar's task sets, not committed ("Task sets")
       <set>/                      # e.g. refunds
         README.md                 # (optional) what the cases are and where they came from
         <case-name>/
@@ -235,6 +246,8 @@ job:
       env:
         ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
   n_concurrent_trials: 4                         # what the local machine can run
+task_sets:                                       # pinned versions ("Task sets")
+  refunds: 3
 ```
 
 Order the Dockerfile from rarely to often changing, so an app change rebuilds (and for `--remote`
@@ -547,4 +560,4 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
       `LMNR_TRAJECTORY_PATH`, or a reconstructed `trajectory.json` is written (and the user knows what it lacks)
 - [ ] Runs against the real model
 - [ ] Single container per task, so `lmnr-cli eval run --remote` works without changes
-- [ ] Task sets published with `lmnr-cli eval push <agent>`; agent scripts committed
+- [ ] Task sets published with `lmnr-cli eval push <agent>` and pinned in `agent.yaml`; agent scripts committed
