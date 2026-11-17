@@ -2,7 +2,7 @@
 
 A cluster is a group of similar signal events: one failure mode, seen on real traces. This reference turns
 those traces into eval cases that reproduce the failure, so a fix can be measured and the failure can't
-quietly come back. The cases are Harbor tasks in a task set: build the harness (agent scripts: image, agent, verifier;
+quietly come back. The cases are Harbor tasks in a task set: build the harness (scripts: image, agent, verifier;
 `lmnr-cli eval run`) as [env-evals.md](env-evals.md) describes. This file covers what goes into the cases:
 which traces, what each case seeds and runs, what it checks, how to publish them, and what to tell the user.
 
@@ -118,7 +118,7 @@ Controls use the same verifier and should pass.
 
 ## Run and read the baseline
 
-Run the task set as env-evals.md describes (`lmnr-cli eval run <agent> --task-set <set>`), against the
+Run the task set as env-evals.md describes (`lmnr-cli eval run <set>`), against the
 current code. Expect failing cases: they are the
 reproduction, and their score is the baseline a fix will move.
 
@@ -144,10 +144,11 @@ reason (read its verifier output).
   retention, code not in the repo), stop and say what is missing. The fix is often better instrumentation,
   not an eval.
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
-- **An existing evals folder.** `lmnr-cli eval pull <agent> --all` first (the sets `agent.yaml` pins; `eval list`
-  shows the rest), then add the cases to that agent: a new task set named after the cluster, unless an
-  existing set covers this failure mode. Reuse its image,
-  seed and driver code ("When the harness doesn't fit" in env-evals.md).
+- **An existing evals folder.** Add the cases to the existing task set for that app: `lmnr-cli eval pull
+  <set>` first (`eval list` shows the project's sets), then add task directories to its `tasks/`. Create a
+  new set only when the cases need a different environment, and have its scripts reuse the existing image,
+  seed and driver code from a shared folder rather than copying them ("When the harness doesn't fit" in
+  env-evals.md).
 - **The trajectory.** The cluster exists, so production sends traces to Laminar, but maybe not in a way an
   eval run can capture (an older SDK, a plain OpenTelemetry exporter, another service). Check before relying
   on `LMNR_TRAJECTORY_PATH`, and reconstruct the trajectory if it isn't covered ("Capturing the agent's
@@ -155,13 +156,13 @@ reason (read its verifier output).
 
 ## Publish
 
-Name a new task set after the cluster (letters, digits, `.`, `_`, `-`); names are project-wide, so pick one
-no other set uses. Once the baseline run shows the
-cases reproduce (or fail for the reason you report), publish them with `lmnr-cli eval push <agent>/<set>`:
-task sets are stored and versioned in Laminar, so pushing is what makes the cases available to the team
-and to later runs. Then pin the version `push` printed in `agent.yaml` (`task_sets: {<set>: <version>}`) so
-runs and CI use it. New or changed agent scripts belong in the repo, committed with the pin: `eval run`
-only uses the repo's copy.
+Tag each case with the cluster: `cluster_id` and `trace_ids` in its task.toml's `[metadata]`, so one set
+can hold cases from many clusters. A new set (only for a new environment) is named for what it covers
+(letters, digits, `.`, `_`, `-`; names are project-wide). Once the baseline run shows the cases reproduce
+(or fail for the reason you report), publish them with `lmnr-cli eval push <set>`: tasks are stored and
+versioned in Laminar, so pushing is what makes the cases available to the team and to later runs. Then set
+`version:` in the set's `eval.yaml` to the version `push` printed, so runs and CI use it. New or changed
+scripts belong in the repo, committed with the pin: `eval run` only uses the repo's copy.
 
 ## Report back
 

@@ -107,7 +107,7 @@ lmnr-cli dataset create my-dataset data.jsonl -o my-dataset.jsonl  # create + wr
 
 ### eval — Harbor environment evals and task sets
 
-`lmnr-cli eval run [agent...]` runs each agent's task sets (`evals/<agent>/agent.yaml` + `evals/<agent>/task_sets/<set>/<task>/`) on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint. Task sets are stored and versioned in Laminar and pinned per set in `agent.yaml` (`task_sets: {<set>: <version>}`); agent scripts live in the repo. `eval push <agent>[/<set>]` publishes, `eval pull <agent>/<set>[@version]` or `eval pull <agent> --all` (the pinned sets) fetches task sets (merged task by task with your copy), `eval pull <agent>` fetches the scripts the last run used, `eval list` shows the project's task sets (names are project-wide). Layout, modes, flags, exit codes and `--json` output are in **[env-evals.md](env-evals.md)**.
+`lmnr-cli eval run [set...]` runs task sets (`evals/<set>/eval.yaml` + `evals/<set>/tasks/<task>/`) on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint. Tasks are stored and versioned in Laminar and pinned per set with `version:` in its `eval.yaml`; scripts live in the repo. `eval push <set>` publishes, `eval pull <set>[@version]` fetches the tasks (merged task by task with your copy, plus the scripts the set's last run used when the folder has none), `eval list` shows the project's task sets. Layout, modes, flags, exit codes and `--json` output are in **[env-evals.md](env-evals.md)**.
 
 ## Debugging & session annotation
 
