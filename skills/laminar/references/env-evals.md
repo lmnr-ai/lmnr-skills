@@ -8,19 +8,17 @@ production code**.
 Run the evals with `lmnr-cli eval run`, not with `harbor run` directly. The CLI builds the images, then
 runs a pinned Harbor (0.25.0) with the Laminar Harbor plugin (https://laminar.sh/docs/integrations/harbor)
 through `uvx`, so nothing needs installing beyond `uv` and Docker. Every trial becomes a Laminar trace and
-an evaluation datapoint, so the agent's trajectory (LLM calls, tool calls) lands in Laminar next to the
-reward and is inspectable with the rest of this skill (SQL, signals, debugging) instead of a pile of log
-files. The same folder runs locally and on Laminar Cloud without changes, so set it up exactly as below.
+an evaluation datapoint, so the agent's trajectory (LLM and tool calls) lands in Laminar next to the
+reward. The same folder runs locally and on Laminar Cloud without changes, so set it up exactly as below.
 
 ## Harbor's design, and how this use differs
 
-Harbor was built for Terminal-Bench, and later for benchmarks like it: a **general-purpose agent** with
-a terminal is dropped into wildly different tasks (fix this repo, configure that server), so every task
-brings its own Dockerfile, its own instruction, and its own tests.
+Harbor was built for benchmarks like Terminal-Bench: a **general-purpose agent** with a terminal is
+dropped into wildly different tasks, so every task brings its own Dockerfile, instruction and tests.
 
 Production evals are the opposite shape. The thing under test is **one product** (an agent, a pipeline,
-an LLM-backed endpoint), and the cases are variations of the same scenario: same code, same services,
-same entry point, different data. Stay compatible with Harbor's task format, but lean on that sameness:
+an LLM-backed endpoint), and the cases are variations of one scenario: same code, services and entry
+point, different data. Stay compatible with Harbor's task format, but lean on that sameness:
 
 - **one prebuilt image** for every case, not a Dockerfile per task;
 - **one agent class** that drives the product's entry point, not a general terminal agent;
@@ -29,8 +27,8 @@ same entry point, different data. Stay compatible with Harbor's task format, but
 ## Running: `lmnr-cli eval run`
 
 ```bash
-lmnr-cli eval run                       # every suite in ./evals, trials on local Docker
-lmnr-cli eval run --suite support --task "refund-*" --n-attempts 3
+lmnr-cli eval run                       # every dataset in ./evals, trials on local Docker
+lmnr-cli eval run --dataset support --task "refund-*" --n-attempts 3
 lmnr-cli eval run --task refund-double-charge   # just one case
 lmnr-cli eval run --remote              # upload, run in Laminar, print the run's log until it ends
 ```
@@ -40,35 +38,31 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
 
 - **Local (default)** is the iteration loop: run it after every change. It needs `uv`, Docker, and
   `LMNR_PROJECT_API_KEY` (`lmnr-cli setup` writes it to `.env`).
-- **`--remote`** scales out, and leaves everything needed to debug a run in Laminar, where the whole team
-  can read it. `lmnr-cli` builds or pulls every image the selected suites need with local Docker for
-  `linux/amd64` (`lmnr.yaml` images, per-task `environment/Dockerfile`s, public `docker_image`s), uploads
-  only the layers Laminar doesn't have, and starts the run in a Laminar sandbox; every trial gets its own
-  sandbox. It needs `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI), then prints the run's log (Harbor's
-  output) until the run ends and exits with its outcome. Ctrl-C stops following; the run goes on. Results
-  appear in the project's evaluations as trials finish. On the evaluation page each trial has its trace, its
-  task folder (Task) and its Harbor output (Log: your `/logs/agent/` files, the verifier output,
+- **`--remote`** scales out, and leaves everything needed to debug a run in Laminar for the whole team.
+  `lmnr-cli` builds or pulls every image the run needs with local Docker for `linux/amd64` (`lmnr.yaml`
+  images, per-task `environment/Dockerfile`s, public `docker_image`s), uploads only the layers Laminar
+  doesn't have, and starts the run in a Laminar sandbox; every trial gets its own sandbox. It needs
+  `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI), then prints the run's log until the run ends and
+  exits with its outcome. Ctrl-C stops following; the run goes on. On the evaluation page each trial has its
+  trace, its task folder (Task) and its Harbor output (Log: your `/logs/agent/` files, the verifier output,
   `exception.txt`), so debug a remote failure there.
 - **Which to use:** local for a tight loop on one machine; `--remote` for many cases at once, for runs
   someone else will look at, and when the machine can't run the stacks.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
   `--env KEY[=VALUE]` (repeatable) adds an agent env var, and a bare `KEY` is read from your environment.
-- `--task` matches task directory names. Only the tasks a run includes (under a `datasets` path or listed
-  in `tasks`, after `--task`) get their images built and their `${VAR}`s required.
-- Each suite is one evaluation group in Laminar. Every run creates a new evaluation in its suite's group,
-  so local and remote runs of a suite are charted together.
-- `--json` prints `{mode, suites, failed, url}`, or for `--remote`, once the run ends,
-  `{mode: "remote", uploadId, sandboxId, suites, url, evaluations, exitCode}` (`evaluations` lists each
-  suite's evaluation link). Exit codes: `16` invalid evals folder or archive too large, `17` `uv`/`docker`
-  missing, `18` a suite's `harbor run` failed (the other suites still run), `19` an unset `${VAR}`, `20` a
-  Docker build/save/pull failed or an image has the wrong platform, `21` a `--remote` run failed before its
-  suites ran or its sandbox was lost.
+- `--task` matches task directory names in the dataset's `tasks/`. Only the tasks a run includes get
+  their images built and their `${VAR}`s required.
+- Every run creates a new evaluation in the group `<dataset> v<N>` when `tasks/` matches the version
+  `lmnr.lock` pins, or `<dataset> unversioned` (never pushed, or edited locally: it warns). Runs of one
+  version, local and remote, are charted together. A `tasks/` that is missing or just out of date is
+  pulled first (see [eval-datasets.md](eval-datasets.md)).
+- `--json` output and the exit codes of every `eval` command are in [eval-datasets.md](eval-datasets.md#reference).
 
 **Remote limits and image requirements:**
 - One container per trial (no docker-compose tasks); `cpus`/`memory_mb` above the sandbox cap are clamped;
   a run that exceeds the deployment's time limit is stopped.
-- `--remote` packs the evals folder (max 1 GiB). Symlinks are skipped, so are directories named `jobs`,
-  `.git`, `node_modules`, virtualenvs and caches; `.env*` files are never packed. Keep large fixtures out.
+- `--remote` packs the evals folder, `tasks/` included (max 1 GiB). Symlinks are skipped, so are
+  directories named `jobs`, `.git`, `node_modules`, virtualenvs and caches; `.env*` files are never packed.
 - Images need `tar`, `gzip` and `bash` (and `su` when the task runs as a non-root user). They are built for
   `linux/amd64`, emulated (slowly) on ARM Macs; architecture-specific downloads should use `ARG TARGETARCH`.
 - Remote runs drop `LMNR_*` vars from the agent env. Against self-hosted Laminar, set `LMNR_GRPC_PORT`
@@ -78,13 +72,11 @@ on the machine that runs `lmnr-cli`, which builds the `lmnr.yaml` images there.
   bounds image preparation plus sandbox start on `--remote`; raise it for very large images.
 
 If the user asks why Laminar instead of plain Harbor: the eval itself (tasks, image, agent, verifier) is
-plain Harbor and works without Laminar (bare `harbor run` needs each `lmnr.yaml` image built first with
-`docker build -t <name>`, since Harbor doesn't read `lmnr.yaml`). Laminar adds full trajectories without
-converting to Harbor's format (when the app is instrumented; see "Capturing the agent's trajectory"), run
-history and side-by-side diffs shared with the team, eval traces in the same SQL tables as production
-traces, signals and clusters (which close the loop in "Turning production data into cases"), and managed
-execution with `--remote`. When bare Harbor is enough (no production tracing in Laminar, rare runs, local
-results are fine), say so; the folder adopts Laminar later without changes.
+plain Harbor (bare `harbor run` needs the `lmnr.yaml` images built with `docker build -t <name>` and the
+dataset's `tasks/` as its dataset). Laminar adds full trajectories (when the app is instrumented), run
+history and diffs shared with the team, versioned tasks, eval traces in the same SQL tables as production
+traces, signals and clusters ("Turning production data into cases"), and managed execution with
+`--remote`. When bare Harbor is enough (no production tracing in Laminar, rare runs), say so.
 
 ## Principles
 
@@ -100,11 +92,10 @@ results are fine), say so; the folder adopts Laminar later without changes.
    cases run in parallel with no shared state and no ordering. Never share a database between cases.
 4. **Evals live next to the code** and the image is built from the same source tree and revision, not
    from vendored copies (see "Staleness").
-5. **Turn the run into artifacts, then verify the artifacts.** The forward pass should leave its observable
-   result in files (a `result.json`, an exported row, a transcript). A verifier is arbitrary code: a
-   deterministic comparison, a rubric, or LLM-powered grading over those artifacts (see "The verifier").
-   Pick what fits the case; a discrete outcome (`event` / `no_event`, `pass` / `fail`) is simply the
-   easiest to start with.
+5. **Turn the run into artifacts, then verify the artifacts.** The forward pass leaves its observable
+   result in files (a `result.json`, an exported row, a transcript); the verifier grades them with a
+   deterministic comparison, a rubric or an LLM ("The verifier"). A discrete outcome (`pass` / `fail`) is
+   the easiest to start with.
 
 ## Procedure
 
@@ -116,7 +107,7 @@ Work through these in order; each step links to the section with the details.
    produces (a response body, a status row, an emitted record) and how to read it; the **external calls**
    (LLM, HTTP) and how they are configured (env, config row, profile). If existing tests seed a fixture for
    this path, copy their seeding shape: it is the best statement of which fields are actually required.
-2. **Lay out `evals/`**: `lmnr.yaml`, `<suite>/harbor.yaml`, and one task with `task.toml`,
+2. **Lay out `evals/<dataset>/`**: `harbor.yaml`, `lmnr.yaml`, and one task in `tasks/` with `task.toml`,
    `instruction.md`, `environment/case.json` and `tests/` ("Directory structure", "Use one prebuilt image").
 3. **Build the one image and boot the services** with a start script in `image/shared/`. Pin service
    versions to what production/compose uses ("Services", "Harbor runtime facts and quirks").
@@ -137,8 +128,8 @@ Work through these in order; each step links to the section with the details.
      duration) to `/logs/agent/result.json` and print it.
 6. **Write the verifier** ("The verifier").
 7. **Declare secrets and document the folder**: `${VAR}` placeholders, `.env.example`, `.gitignore` for
-   `.env` and `evals/*/jobs/`, and `evals/README.md` saying how to run and how to add a case ("Secrets and
-   env vars").
+   `.env` and `evals/*/jobs/`, and `evals/README.md` saying how to run and how to add a case, without a
+   list of cases ("Secrets and env vars").
 8. **Run it locally** from the repo root with `lmnr-cli eval run` and fix until it passes. Then verify the
    harness, not just the case: run a **positive** and a **negative** case that share the same
    prompt/config and differ only in input, and flip the reference answer once to confirm the reward goes
@@ -146,46 +137,52 @@ Work through these in order; each step links to the section with the details.
 9. **Check the trajectory** in the trial's trace: LLM and tool calls should be visible ("Capturing the
    agent's trajectory").
 10. **Optionally run `--remote`** once to confirm the folder works in Laminar sandboxes ("Running").
+11. **Version the tasks and commit the setup**: `lmnr-cli eval push -m "<what the cases cover>"` stores
+    them in Laminar as v1, then commit the setup, `lmnr.lock` and the dataset's `.gitignore`, never
+    `tasks/` ([eval-datasets.md](eval-datasets.md)).
 
 ## Data isolation
 
-Isolated environments let each case start from exactly the data it needs. Decide per dataset which of
-two kinds it is:
+Each case starts from exactly the data it needs. Seed data is one of two kinds, and most setups have both:
 
 - **Shared baseline data**: the same for every case (reference tables, a default org/user/project, config
-  rows, an LLM profile). Seed it once in the image build, or in a shared seed script that runs at startup
-  in every container. Each container still gets its own copy, so isolation holds.
+  rows, an LLM profile). Seed it in the image build or in a shared seed script run at startup; each
+  container still gets its own copy.
 - **Per-case data**: what makes the case reproduce a specific behaviour from production (the conversation,
-  the spans, the records that triggered a failure). This is usually the bulk of the case. It lives in the
-  task's `environment/` directory and is seeded at startup by the same shared seed code for every case.
+  the spans, the records that triggered a failure), usually the bulk of the case. It lives in the task's
+  `environment/` directory and is seeded at startup by the same shared seed code for every case.
 
-Most real setups have both. Keep per-case data in one format your seed script reads (`case.json`, a SQL
-file, a directory of fixtures), so the seed script is shared and only the data differs.
+Keep per-case data in one format your seed script reads (`case.json`, a SQL file, a directory of
+fixtures), so the seed script is shared and only the data differs.
 
 ## Directory structure
 
-This layout is what `lmnr-cli eval run` expects. Each **suite** is a directory directly inside `evals/`
-holding a `harbor.yaml`; most projects have one suite. Files marked *(optional)* depend on your setup.
+This layout is what `lmnr-cli eval run` expects. Each **eval dataset** is a directory directly inside
+`evals/` holding a `harbor.yaml`; its folder name is its name in Laminar (letters, digits, `.`, `_`, `-`).
+Most projects have one. The setup is committed; the tasks are versioned in Laminar
+([eval-datasets.md](eval-datasets.md)). Files marked *(optional)* depend on your setup.
 
 ```
 evals/
   README.md                       # how to run, how to add a case
-  lmnr.yaml                       # the images tasks use, and how to build them
-  image/
-    Dockerfile                    # the one image: services, app artifact, shared scripts, baseline data
-    shared/                       # copied into the image by the Dockerfile
-      start_stack.sh              # boot dependencies + the app, wait for readiness
-      schema/                     # (optional) schema setup when the app has no migrations of its own
-      seed_baseline.*             # (optional) data every case shares
-      seed_case.*                 # load this case's data from the uploaded environment/ files
-      run_case.*                  # drive the entry point; write result files
-      export_trajectory.*         # (optional) rebuild the agent's trajectory when the app isn't instrumented
-  <suite>/                        # e.g. support-agent
-    harbor.yaml                   # Harbor JobConfig: agents, datasets, concurrency, ${VAR} secrets
+  <dataset>/                      # e.g. support-agent
+    harbor.yaml                   # Harbor JobConfig: agents, concurrency, ${VAR} secrets
+    lmnr.yaml                     # the images tasks use, and how to build them
+    lmnr.lock                     # written by eval push / pull: the pinned task version; commit it
+    .gitignore                    # /tasks/, added by eval push / pull
+    image/
+      Dockerfile                  # the one image: services, app artifact, shared scripts, baseline data
+      shared/                     # copied into the image by the Dockerfile
+        start_stack.sh            # boot dependencies + the app, wait for readiness
+        schema/                   # (optional) schema setup when the app has no migrations of its own
+        seed_baseline.*           # (optional) data every case shares
+        seed_case.*               # load this case's data from the uploaded environment/ files
+        run_case.*                # drive the entry point; write result files
+        export_trajectory.*       # (optional) rebuild the trajectory when the app isn't instrumented
     agent/
       __init__.py
       agent.py                    # BaseInstalledAgent subclass: starts the stack, runs the driver
-    tasks/
+    tasks/                        # stored in Laminar once pushed: gitignored, filled by eval pull / run
       <case-name>/
         task.toml                 # [environment] docker_image = "<image name from lmnr.yaml>"
         instruction.md
@@ -196,22 +193,22 @@ evals/
           expected.json           # (optional) reference answer, if the verifier compares against one
 ```
 
-`evals/lmnr.yaml` names each image and how to build it. Paths are relative to `evals/`; `context` is the
-`docker build` context (default: the Dockerfile's directory). Use the repo root so the image can copy the
-app source and migrations from the live tree:
+`<dataset>/lmnr.yaml` names each image and how to build it. Paths are relative to the dataset folder
+(an `evals/lmnr.yaml` is an error); `context` is the `docker build` context (default: the Dockerfile's
+directory). Use the repo root so the image can copy the app source and migrations from the live tree:
 
 ```yaml
 images:
   myapp-evals:
     dockerfile: image/Dockerfile
-    context: ..
+    context: ../..
 ```
 
 Order the Dockerfile from rarely to often changing, so an app change rebuilds (and for `--remote`
 uploads) one small layer. `COPY` the specific paths the image needs, never `COPY . .` from the repo root:
 BuildKit only sends what `COPY`/`ADD` reference, so a large repo costs nothing, while `COPY . .` would bake
-in all of it, Harbor's job output and every suite's `tests/` (reference answers) included. From `evals/`,
-copy `image/shared/` only. `.dockerignore` applies, and `lmnr-cli` never lets `.git` or `.env*` into a build.
+in all of it, job output and the tasks' `tests/` (reference answers) included. From the dataset folder,
+copy `image/shared/` only. `lmnr-cli` never lets `.git` or `.env*` into a build.
 
 ```dockerfile
 FROM python:3.12-slim-bookworm
@@ -219,14 +216,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       postgresql redis-server curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /srv/app/
 RUN pip install --no-cache-dir -r /srv/app/requirements.txt
-COPY evals/image/shared/ /opt/harness/
+COPY evals/support-agent/image/shared/ /opt/harness/
 COPY migrations/ /srv/app/migrations/
 COPY app/ /srv/app/app/
 WORKDIR /case
 ```
 
-`<suite>/harbor.yaml` is a plain Harbor JobConfig. Relative paths in it resolve from the suite directory,
-and the suite directory is on `PYTHONPATH`, so the agent's `import_path` is relative to it:
+`<dataset>/harbor.yaml` is a plain Harbor JobConfig. Relative paths in it resolve from the dataset
+directory, and that directory is on `PYTHONPATH`, so the agent's `import_path` is relative to it. Don't set
+`datasets` or `tasks` (exit `16`): `lmnr-cli` runs the dataset's `tasks/`. Use `--task` for a subset, and
+another dataset folder for other tasks.
 
 ```yaml
 agents:
@@ -234,8 +233,6 @@ agents:
     model_name: anthropic/claude-sonnet-5-5   # read as self.model_name; overridable with --model
     env:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-datasets:
-  - path: tasks
 n_concurrent_trials: 4                         # what the local machine can run
 ```
 
@@ -257,9 +254,8 @@ cpus = 2
 memory_mb = 4096
 ```
 
-- **Speed is the main reason.** Every trial starts from the same built image instead of building its own.
-  `lmnr-cli` builds it once per run (a cached build when nothing changed); for `--remote` it uploads only
-  missing layers, so an unchanged image uploads nothing. No tags to bump.
+- **Speed is the main reason.** Every trial starts from the same image, built once per run (cached when
+  nothing changed); `--remote` uploads only missing layers. No tags to bump.
 - **Per-case files still arrive.** When `docker_image` is set and `environment/` has no `Dockerfile` or
   `docker-compose.yaml`, Harbor uploads the contents of `environment/` into the workdir after the container
   starts. That is how `case.json` reaches a shared image.
@@ -286,8 +282,8 @@ never as a `harbor run` flag:
 
 `${VAR:-default}` makes one optional. `lmnr-cli eval run` reads each referenced name from the shell, then
 from `.env.local` / `.env` in the current directory, and fails before anything starts (exit `19`) if a
-required one is missing, so the user only has to fill in `.env`. For `--remote` the values travel with the
-run as env vars; files with secrets in them are never uploaded. Add `.env` and Harbor's job output
+required one is missing. For `--remote` the values travel with the run as env vars; files with secrets
+in them are never uploaded. Add `.env` and Harbor's job output
 (`evals/*/jobs/`) to `.gitignore`, and write a `.env.example` listing the names.
 
 ## The agent: subclass `BaseInstalledAgent`
@@ -318,8 +314,8 @@ Shape of the installed agent:
   `timeout`) and non-zero only for harness errors.
 - `populate_context_post_run(context)`: runs after logs are synced to the host; parse `result.json` and put
   the result into the context.
-- Reference it from `harbor.yaml` as `import_path: agent.agent:ClassName` (relative to the suite).
-- Import only `harbor`, the standard library and modules inside the suite directory: the class itself runs
+- Reference it from `harbor.yaml` as `import_path: agent.agent:ClassName` (relative to the dataset).
+- Import only `harbor`, the standard library and modules inside the dataset directory: the class itself runs
   in the Harbor process (on the user's machine or Laminar's orchestrator), not in the container. Anything
   else belongs in the image.
 
@@ -362,7 +358,6 @@ Make sure that:
 If the app isn't instrumented, adding Laminar is a production change: propose it to the user rather than
 doing it inside the eval work. It is small, and production traces benefit too (see
 [instrumentation-python.md](instrumentation-python.md), [instrumentation-typescript.md](instrumentation-typescript.md)).
-Some apps can't take it now: another language, another tracing setup, or not this change.
 
 ### Not instrumented: reconstruct it from the app's own history
 
@@ -403,9 +398,8 @@ suggest instrumentation.
 
 ## Seed data the agent can't tell is a test
 
-Capable models notice when they're being evaluated, and the more general the agent, the more it
-looks around and the likelier it is to notice. An agent that suspects a test may behave differently
-from how it behaves in production, and then the eval measures the wrong thing. Fixtures are where this leaks most.
+Capable models notice when they're being evaluated (the more general the agent, the likelier), and an
+agent that suspects a test may behave differently than in production. Fixtures are where this leaks most.
 
 - **Timestamps.** This takes judgement. Production data exported weeks ago, replayed today, reads as
   stale: "the last activity on this account was 5 months ago" is a hint the agent is looking at a fixture.
@@ -495,12 +489,11 @@ missing them can start but silently never bind its port.
   every service log under `/logs/agent/`.
 - Some services refuse to run as root (Postgres). Use `gosu`/`su` to a service user, and make sure the
   log directory is writable by that user (`chmod 777 /logs/agent`).
-- Some servers need a password in the connection string even when the database uses trust auth; use a dummy.
 - Keep exec timeouts below the task's `[agent] timeout_sec`, and the driver's own timeout below both.
 - **Secret scrubbing:** Harbor redacts agent env values from its output files. A very short value
   (a one-character placeholder like `x`) turns every occurrence of that character in the job output into
   `[REDACTED]` (`ma[REDACTED]_timeout_sec`), so keep placeholder values long and distinctive.
-- **Job output:** `evals/<suite>/jobs/<timestamp>/` for local runs. Each trial has `agent/`
+- **Job output:** `evals/<dataset>/jobs/<timestamp>/` for local runs. Each trial has `agent/`
   (your logs, `result.json`) and `verifier/` (`reward.txt`, `test-stdout.txt`); `exception.txt` holds the
   agent traceback.
 
@@ -510,8 +503,9 @@ turn each into a case's data, grade whether the failure recurs, and add the case
 build cases from a cluster or a signal's events (choosing and deduplicating traces, mapping a trace onto
 seed data, the verifier, what to report), read [evals-from-clusters.md](evals-from-clusters.md).
 
-Once the harness exists, adding a case is: copy a task directory, drop in the new case data and reference
-answer, run `lmnr-cli eval run --task <new-case>`, then the whole suite, and commit.
+Once the harness exists, adding a case is: `lmnr-cli eval pull`, copy a task directory, drop in the new
+case data and reference answer, run `lmnr-cli eval run --task <new-case>`, then the whole dataset, then
+`lmnr-cli eval push -m "<what changed>"` and commit `lmnr.lock` ([eval-datasets.md](eval-datasets.md)).
 
 ### When the harness doesn't fit
 Adding a case should not need harness changes. If one does, first try to generalise the shared seed/driver
@@ -523,23 +517,22 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
 ## Checklist
 - [ ] Entry point, inputs and terminal state identified; no production code changed (or a change agreed
       with the user)
-- [ ] Layout as in "Directory structure": `evals/lmnr.yaml`, `evals/<suite>/harbor.yaml`, tasks under the suite
+- [ ] Layout as in "Directory structure"; `harbor.yaml` sets no `datasets`/`tasks`
 - [ ] One image from `lmnr.yaml`, referenced by `docker_image`; per-case data in `environment/`; no
       per-task Dockerfile (unless justified, and then no `docker_image` on that task)
-- [ ] The Dockerfile goes from rarely to often changing layers and copies specific paths: from `evals/`,
-      `evals/image/shared/` only; never `COPY . .` or `evals/<suite>/` (tests hold reference answers)
-- [ ] Real services seeded for as much of the stack as possible; any mock is a last resort and reported to
-      the user; schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
+- [ ] The Dockerfile goes from rarely to often changing layers and copies `image/shared/`, never
+      `COPY . .` or `tasks/` (tests hold reference answers)
+- [ ] Real services, seeded; any mock is a last resort and reported; schemas created as the app's boot
+      does (or inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] The agent's `install()` is `pass`, `run()` is thin, it imports only `harbor`, the standard library and
-      suite modules, and reads `self.model_name`; logs for every service land in `/logs/agent/`
+      dataset modules, and reads `self.model_name`; logs for every service land in `/logs/agent/`
 - [ ] The verifier writes `/logs/verifier/reward.txt`; reference answers only in `tests/`
-- [ ] Every secret is a `${VAR}` placeholder; `.env.example` lists them; `.env` and `evals/*/jobs/` are
+- [ ] Every secret is a `${VAR}` placeholder listed in `.env.example`; `.env` and `evals/*/jobs/` are
       gitignored; `evals/README.md` says how to run and how to add a case
-- [ ] `lmnr-cli eval run` passes locally from the repo root; each run shows up as a new evaluation in the
-      suite's group
+- [ ] `lmnr-cli eval run` passes locally from the repo root, against the real model
 - [ ] A positive and a negative case behave as expected; a flipped reference answer scores 0
-- [ ] Trials show the agent's LLM and tool calls: the app is instrumented with Laminar and receives
-      `LMNR_TRAJECTORY_PATH`, or a reconstructed `trajectory.json` is written (and the user knows what it lacks)
-- [ ] Runs against the real model
+- [ ] Trials show the agent's LLM and tool calls (instrumented app receiving `LMNR_TRAJECTORY_PATH`, or a
+      reconstructed `trajectory.json` whose gaps the user knows)
 - [ ] Single container per task, so `lmnr-cli eval run --remote` works without changes
+- [ ] Tasks pushed (`eval push -m`); setup, `lmnr.lock` and `.gitignore` committed, `tasks/` not

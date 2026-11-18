@@ -45,7 +45,7 @@ to see the input, the step that went wrong and the tool results around it.
 ## Pick the traces
 
 Cover the failure mode with a small set, not every trace: each case boots a full stack in its own
-container. 3 to 8 failing cases plus 1 to 3 controls is a good first suite for one cluster.
+container. 3 to 8 failing cases plus 1 to 3 controls is a good first set for one cluster.
 
 1. **Split by failure mode.** If the cluster has children, take cases from each leaf cluster
    (`leaf_clusters`), not only from the biggest.
@@ -56,7 +56,7 @@ container. 3 to 8 failing cases plus 1 to 3 controls is a good first suite for o
    this repo, and recent (`traces.release` close to the current revision). Skip traces whose failure came from
    an outage (a provider 5xx, a timeout) rather than the agent's behaviour, unless handling that outage is the
    failure mode.
-4. **Keep the severe ones.** Include the critical events; don't fill the suite with the mildest.
+4. **Keep the severe ones.** Include the critical events; don't fill the set with the mildest.
 5. **Add controls:** traces the same signal evaluated and did *not* flag, through the same entry point with
    similar inputs. They catch a fix that over-corrects (refuses, stops calling the tool):
 
@@ -69,7 +69,7 @@ WHERE signal_id = toUUID('<signal_id>')
 LIMIT 50
 ```
 
-Note why you chose each trace as you go; it goes into the suite's README ("Report back").
+Note why you chose each trace as you go; it goes into the case's `[metadata]` ("Report back").
 
 ## Turn a trace into a case
 
@@ -86,15 +86,16 @@ Then map the trace onto the case:
 | What the agent read: tool results, retrieved documents, rows it queried | seeded state in `case.json`: database rows, files, or recorded responses at a third-party edge (a mock, reported as env-evals.md requires) |
 | Earlier turns of a multi-turn conversation | seeded history; drive only the turn that failed (`is_copied_context` in a reconstructed trajectory) |
 | The event's `payload` and the signal's `prompt` | the verifier (next section) |
-| The trace id, the cluster, why it was chosen | `[metadata]` in `task.toml` (e.g. `source_trace_id`, `cluster`, `reason`) and the suite's `README.md` |
+| The trace id, the cluster, why it was chosen | `[metadata]` in `task.toml` (e.g. `source_trace_id`, `cluster`, `reason`) |
 
 - **Seed what the agent saw, not what it should have seen.** The case reproduces the conditions of the
   failure; with corrected data it tests nothing.
 - **Don't replay the model.** The recorded LLM outputs are what's under test: only tool and service results
   become seed data, and the model runs live ("LLM handling" in env-evals.md).
 - **Rebase timestamps, regenerate ids, replace PII and secrets** ("Seed data the agent can't tell is a test"
-  in env-evals.md). Traces can hold customer data and the cases get committed: never commit raw PII or
-  credentials. Values the project masks arrive masked; replace them with plausible ones.
+  in env-evals.md). Traces can hold customer data, and the cases are shared with everyone who runs the
+  evals (pushed to Laminar): never put raw PII or credentials in them. Values the project masks arrive
+  masked; replace them with plausible ones.
 - Name task directories after the behaviour (`refund-double-charge`), not the trace id.
 
 ## The verifier: did the failure recur?
@@ -118,7 +119,7 @@ Controls use the same verifier and should pass.
 
 ## Run and read the baseline
 
-Run the suite as env-evals.md describes, against the current code. Expect failing cases: they are the
+Run the cases as env-evals.md describes, against the current code. Expect failing cases: they are the
 reproduction, and their score is the baseline a fix will move.
 
 - **Cases fail the way the cluster describes:** the eval works. Leave them failing; fixing the agent is a
@@ -138,14 +139,14 @@ reason (read its verifier output).
 
 - **Too few traces.** One or two traces still make an eval: build those cases and say the eval is thin. Add
   variations (another phrasing, other data) only if the user agrees, and mark them as synthetic in
-  `[metadata]` and the README. Never present a synthetic case as production data.
+  `[metadata]`. Never present a synthetic case as production data.
 - **No usable trace.** If no trace can be reproduced (input or tool results not recorded, data past
   retention, code not in the repo), stop and say what is missing. The fix is often better instrumentation,
   not an eval.
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
-- **An existing evals folder.** Add the cases to it (a suite for this failure mode, or tasks in the suite
-  with the same entry point) and reuse its image, seed and driver code ("When the harness doesn't fit" in
-  env-evals.md).
+- **An existing eval dataset.** Add the cases to the dataset whose harness drives the same entry point,
+  reusing its image, seed and driver code ("When the harness doesn't fit" in env-evals.md). Start from
+  the version `lmnr.lock` pins (`lmnr-cli eval pull`); a new dataset folder means new setup to commit.
 - **The trajectory.** The cluster exists, so production sends traces to Laminar, but maybe not in a way an
   eval run can capture (an older SDK, a plain OpenTelemetry exporter, another service). Check before relying
   on `LMNR_TRAJECTORY_PATH`, and reconstruct the trajectory if it isn't covered ("Capturing the agent's
@@ -153,9 +154,11 @@ reason (read its verifier output).
 
 ## Report back
 
-The full record goes in the suite's `README.md`: one row per case with its name, source trace, why it was
-chosen and what the verifier checks, controls and synthetic cases marked. It outlives the conversation and
-can be as long as the suite.
+The full record goes in the cases themselves: each task's `[metadata]` in `task.toml` holds its source
+trace, cluster, why it was chosen and what the verifier checks, with controls and synthetic cases marked.
+It is versioned with the task and outlives the conversation; a case list in a README would go stale, since
+the tasks live in Laminar ([eval-datasets.md](eval-datasets.md)). Push the cases as a new version whose
+message says what it adds (`lmnr-cli eval push -m "Add 6 cases from cluster <name>"`).
 
 What you tell the user stays short however many cases there are:
 
@@ -166,6 +169,7 @@ What you tell the user stays short however many cases there are:
 2. The baseline: how many cases reproduce the failure, with a link to the evaluation.
 3. Anything that limits what the eval measures: mocks, a reconstructed trajectory, an inferred schema,
    traces that couldn't be used and why.
-4. Where the full list is (the README).
+4. The dataset version the cases are in, and whether `lmnr.lock` pins it yet (if not:
+   `lmnr-cli eval pull --dataset <name> --version <N>`, then commit `lmnr.lock`).
 
-A pull request description, if you open one, takes the same short summary and points to the README.
+A pull request description, if you open one, takes the same short summary.

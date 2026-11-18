@@ -5,7 +5,7 @@
 ## Contents
 
 - Auth (OAuth Device Flow) and self-hosted config
-- `lmnr-cli`: setup, login/logout, project, sql, dataset, eval run (pointer to [env-evals.md](env-evals.md))
+- `lmnr-cli`: setup, login/logout, project, sql, dataset, eval (pointers to [env-evals.md](env-evals.md) and [eval-datasets.md](eval-datasets.md))
 - Debugging & session annotation (see [debugging.md](debugging.md))
 - Agent-friendly output (`--json`)
 
@@ -105,9 +105,9 @@ lmnr-cli dataset create my-dataset data.jsonl -o my-dataset.jsonl  # create + wr
 
 `push`/`pull` take `-n <name>` or `--id <id>`; `create`/`push`/`pull` accept `--batch-size` (default 100) and `-r`/`--recursive`. Datapoint `id` fields drive versioning — never edit them in local files. Deleting a datapoint locally does not delete it in Laminar; `push` only adds new datapoint versions.
 
-### eval run — Harbor environment evals
+### eval — Harbor environment evals and eval datasets
 
-`lmnr-cli eval run` runs the Harbor suites in `./evals` on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint. Setup, modes, flags, exit codes and `--json` output are in **[env-evals.md](env-evals.md)**.
+`lmnr-cli eval run` runs the eval datasets in `./evals` (one folder per dataset, `evals/<dataset>/harbor.yaml`) on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint. `lmnr-cli eval push` / `pull` / `status` version each dataset's `tasks/` in Laminar and pin a version in the committed `evals/<dataset>/lmnr.lock`. Eval datasets are unrelated to `lmnr-cli dataset` above. Setup, modes and flags are in **[env-evals.md](env-evals.md)**; versioning, `--json` output and exit codes in **[eval-datasets.md](eval-datasets.md)**.
 
 ## Debugging & session annotation
 
