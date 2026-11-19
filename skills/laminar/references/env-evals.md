@@ -53,8 +53,9 @@ running, `eval run` pulls the dataset's tasks that are missing from `tasks/` or 
   goes on. Results appear in the project's evaluations as trials finish. On the evaluation page each trial
   has its trace and a **Files** view with three folders: `task/` (the exact task version it ran), `agent/`
   (the dataset's `agent/` folder) and `logs/` (Harbor's output: your `/logs/agent/` files, the verifier
-  output, `exception.txt`), so debug a remote failure there. Local runs upload nothing, so their trials show
-  only `task/`, and only for task versions that were pushed.
+  output, `exception.txt`; `agent/` and `logs/` start collapsed), so debug a remote failure there. Local
+  runs upload nothing, so their trials show only `task/`, and only for task versions that were pushed. The
+  evaluation's header links to the eval dataset the run used, once that dataset has been pushed.
 - **Which to use:** local for a tight loop on one machine; `--remote` for many cases at once, for runs
   someone else will look at, and when the machine can't run the stacks.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
@@ -62,9 +63,12 @@ running, `eval run` pulls the dataset's tasks that are missing from `tasks/` or 
 - `--task` is Harbor's: on `eval run` it matches task **directory** names (on `eval dataset` it matches
   task names). Only the tasks a run includes (under a `datasets` path or listed in `tasks`, after `--task`)
   get their images built and their `${VAR}`s required.
-- Each dataset is one evaluation group in Laminar, named after its `[dataset] name`. Every run creates a
-  new evaluation in that group, so local and remote runs of a dataset are charted together, and each trial
-  records the task (`[task] name`) and the version (content hash) it ran.
+- Every run creates a new evaluation in an evaluation group, and runs in one group are charted together.
+  The group is the dataset's `[dataset] name` unless `--group <name>` names another, so local and remote
+  runs of a dataset line up by default. Use `--group` to keep a series apart (a prompt or model experiment):
+  `lmnr-cli eval run support --group "support (prompt v2)"`. It applies to one dataset, so name the dataset
+  when the evals folder has several (another dataset gets its own command and group). Each evaluation still
+  records its dataset, and each trial the task (`[task] name`) and version (content hash) it ran.
 - `--json` prints `{mode, datasets, failed, url}`, or for `--remote`, once the run ends,
   `{mode: "remote", uploadId, sandboxId, datasets, url, evaluations, exitCode}` (`evaluations` lists each
   dataset's evaluation link). Exit codes: `16` invalid evals folder or archive too large, `17` `uv`/`docker`
@@ -336,8 +340,8 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--latest
   (or Harbor's default ignores) and `.harborignore` (in `tests/`, `solution/`) exclude. Anything else in the
   task folder is neither hashed nor stored, so keep notes in `README.md`. File modes don't count. A
   symlinked task folder is not pulled, pushed or hashed.
-- The project's **Eval datasets** page lists each dataset's tasks and every version, and links to the
-  dataset's runs.
+- The project's **Eval datasets** page lists each dataset's tasks and every version. To find a dataset's
+  runs, open its evaluation group (the dataset name, or the `--group` you used).
 
 ## Use one prebuilt image
 
@@ -642,7 +646,7 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
 - [ ] Every secret is a `${VAR}` placeholder; `.env.example` lists them; `.env` and `evals/*/jobs/` are
       gitignored; `evals/README.md` says how to run and how to add a case
 - [ ] `lmnr-cli eval run` passes locally from the repo root; each run shows up as a new evaluation in the
-      dataset's group
+      dataset's group (or the `--group` you passed)
 - [ ] Tasks pushed with `lmnr-cli eval dataset push`; `tasks/dataset.toml` committed, the task folders not
 - [ ] A positive and a negative case behave as expected; a flipped reference answer scores 0
 - [ ] Trials show the agent's LLM and tool calls: the app is instrumented with Laminar and receives
