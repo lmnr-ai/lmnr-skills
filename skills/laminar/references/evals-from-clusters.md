@@ -96,7 +96,8 @@ Then map the trace onto the case:
   in env-evals.md). Traces can hold customer data, and the cases get pushed to Laminar and run by the
   whole team: never put raw PII or credentials in a case. Values the project masks arrive masked; replace
   them with plausible ones.
-- Name task directories after the behaviour (`refund-double-charge`), not the trace id.
+- Name tasks after the behaviour, not the trace id: the directory (`refund-double-charge`) and its
+  `[task] name` in `task.toml` (`<org>/refund-double-charge`), unique within the dataset.
 
 ## The verifier: did the failure recur?
 
@@ -135,8 +136,8 @@ reproduction, and their score is the baseline a fix will move.
 Check the verifier once, as env-evals.md asks: a control passes, and a failing case scores 0 for the right
 reason (read its verifier output).
 
-Then push the cases (`lmnr-cli eval dataset push <dataset>`) and commit `tasks.toml` with the rest of
-`evals/`, so the baseline's task versions are the ones the team pulls and a fix is measured on the same
+Then push the cases (`lmnr-cli eval dataset push <dataset>`) and commit `tasks/dataset.toml` with the
+rest of `evals/`, so the baseline's task versions are the ones the team pulls and a fix is measured on the same
 cases ("Eval datasets" in env-evals.md).
 
 ## Edge cases
@@ -150,10 +151,12 @@ cases ("Eval datasets" in env-evals.md).
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
 - **An existing evals folder.** Run `lmnr-cli eval dataset pull` first so `tasks/` holds the pinned
   tasks, then add the cases to it (a dataset for this failure mode, or tasks in the dataset with the same
-  entry point) and reuse its image, seed and driver code ("When the harness doesn't fit" in
-  env-evals.md). An older folder with its tasks committed to git and one `evals/lmnr.yaml` needs moving
-  to the layout in env-evals.md first: `lmnr.yaml` into each dataset (paths relative to it), then
-  `lmnr-cli eval dataset push`, `git rm -r --cached <dataset>/tasks`, and commit `tasks.toml`.
+  entry point) and reuse its `agent/` ("When the harness doesn't fit" in env-evals.md). An older folder
+  needs moving to the layout in env-evals.md first: `images` from any `lmnr.yaml` into each dataset's
+  `harbor.yaml` (paths relative to the dataset), shared image scripts into each dataset's `agent/`, a
+  `tasks/dataset.toml` with `[dataset] name` and a `[task] name` in every `task.toml` (a `tasks.toml`
+  from an earlier lmnr-cli is no longer read); then `lmnr-cli eval dataset push`, `git rm -r --cached
+  <dataset>/tasks` if the tasks were committed, and commit `tasks/dataset.toml`.
 - **The trajectory.** The cluster exists, so production sends traces to Laminar, but maybe not in a way an
   eval run can capture (an older SDK, a plain OpenTelemetry exporter, another service). Check before relying
   on `LMNR_TRAJECTORY_PATH`, and reconstruct the trajectory if it isn't covered ("Capturing the agent's
