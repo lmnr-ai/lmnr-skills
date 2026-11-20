@@ -26,7 +26,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 |----------------------|------|
 | Add Laminar tracing to a TypeScript/JS/Node codebase | [references/instrumentation-typescript.md](references/instrumentation-typescript.md) |
 | Add Laminar tracing to a Python codebase | [references/instrumentation-python.md](references/instrumentation-python.md) |
-| Use `lmnr-cli` / `lmnr` CLI (setup, login, sql, datasets, debug sessions); for `lmnr-cli eval run` / `eval dataset` see env-evals.md below | [references/cli.md](references/cli.md) |
+| Use `lmnr-cli` / `lmnr` CLI (setup, login, sql, legacy datasets, debug sessions); for `lmnr-cli eval run` / `eval dataset` see env-evals.md below | [references/cli.md](references/cli.md) |
 | Query traces, spans, signal events, or clusters with the SQL API | [references/sql-query-api.md](references/sql-query-api.md) |
 | Migrate from Langfuse / LangSmith / Helicone / OpenTelemetry | [references/migration.md](references/migration.md) |
 | Debug an agent: record under `LMNR_DEBUG`, replay cached LLM calls, annotate sessions | [references/debugging.md](references/debugging.md) |

@@ -94,7 +94,7 @@ For writing scripts, or if you don't have access to the CLI, see [sql-query-api.
 
 ### dataset — manage datasets (deprecated)
 
-**Deprecated:** `lmnr-cli dataset` still works but prints a warning (on stderr; `--json` output is unaffected) and will be removed in a future release. Don't start new work on it: for eval cases, use `lmnr-cli eval dataset` (see [env-evals.md](env-evals.md)). Use these commands only when the user already depends on a Laminar dataset of datapoints.
+**Deprecated:** `lmnr-cli dataset` still works but prints a warning (on stderr; `--json` output is unaffected) and will be removed in a future release. Don't start new work on it: for eval cases, use `lmnr-cli eval dataset` (see [env-evals.md](env-evals.md)). Use these commands only when the user already depends on a Laminar dataset of datapoints (the UI shows those under **Datasets / legacy**, which is being retired).
 
 List, push, pull, and create datasets from `.jsonl` / `.json` / `.csv` files.
 

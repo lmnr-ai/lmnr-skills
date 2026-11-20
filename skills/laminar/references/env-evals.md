@@ -57,7 +57,9 @@ on disk (see "Eval datasets").
   (the dataset's `agent/` folder) and `logs/` (Harbor's output: your `/logs/agent/` files, the verifier
   output, `exception.txt`; `agent/` and `logs/` start collapsed), so debug a remote failure there. Local
   runs upload nothing, so their trials show only `task/`, and only for task versions that were pushed. The
-  evaluation's header links to the eval dataset the run used, once that dataset has been pushed.
+  evaluation's header links to the eval dataset the run used, once that dataset has been pushed; in its
+  table, a task that ran a pushed version is a chip that opens that version's files, and so is the task
+  name above the Files tree.
 - **Which to use:** local for a tight loop on one machine; `--remote` for many cases at once, for runs
   someone else will look at, and when the machine can't run the stacks.
 - `--n-concurrent`, `--n-attempts`, `--model` and `--task <glob>` override `harbor.yaml` for one run;
@@ -87,7 +89,9 @@ on disk (see "Eval datasets").
 - Images need `tar`, `gzip` and `bash` (and `su` when the task runs as a non-root user). They are built for
   `linux/amd64`, emulated (slowly) on ARM Macs; architecture-specific downloads should use `ARG TARGETARCH`.
 - Remote runs drop `LMNR_*` vars from the agent env. Against self-hosted Laminar, set `LMNR_GRPC_PORT`
-  (shell or `.env`) or the trial traces don't arrive.
+  (shell or `.env`) or the trial traces don't arrive. A self-hosted Laminar stores eval datasets only with
+  S3 configured (`S3_DATASETS_BUCKET` plus AWS credentials); without it, `eval dataset pull` / `push` fail
+  with `storage_not_configured`, and `--remote` runs upload every task.
 - Soft guidance: sandboxes per project are capped (50 by default), so a higher `--n-concurrent` queues and
   retries rather than running more at once. Harbor's `[environment] build_timeout_sec` (default 600)
   bounds image preparation plus sandbox start on `--remote`; raise it for very large images.
@@ -356,8 +360,10 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--dry-ru
   (or Harbor's default ignores) and `.harborignore` (in `tests/`, `solution/`) exclude. Anything else in the
   task folder is neither hashed nor stored, so keep notes in `README.md`. File modes don't count. A
   symlinked task folder is not pulled, pushed or hashed.
-- The project's **Eval datasets** page lists each dataset's tasks and every version. To find a dataset's
-  runs, open its evaluation group (the dataset name, or the `--group` you used).
+- The project's **Datasets** page (sidebar) lists each eval dataset's tasks and every version; the old
+  datasets of datapoints are under **Datasets / legacy**. The **Evaluations** table has a **Dataset**
+  column linking each run to its dataset; to see one dataset's runs together, open its evaluation group
+  (the dataset name, or the `--group` you used).
 
 ## Use one prebuilt image
 
