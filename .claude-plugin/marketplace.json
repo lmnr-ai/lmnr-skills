@@ -1,0 +1,17 @@
+{
+  "name": "laminar",
+  "description": "Laminar plugins for Claude Code",
+  "owner": {
+    "name": "Laminar",
+    "email": "founders@lmnr.ai",
+    "url": "https://laminar.sh"
+  },
+  "plugins": [
+    {
+      "name": "laminar",
+      "source": "./",
+      "description": "Query agent traces with SQL and manage signals through the hosted Laminar MCP server, plus the Laminar skill.",
+      "category": "monitoring"
+    }
+  ]
+}
