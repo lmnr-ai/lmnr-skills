@@ -2,10 +2,16 @@
 
 A single, unified skill for [Laminar](https://laminar.sh/docs): instrument code with tracing, run the Laminar CLI, query trace data with SQL, debug agents with record/replay, and migrate from other observability tools.
 
-## Install
+## Install as a plugin
+
+The `laminar` plugin bundles this skill with the hosted [Laminar MCP server](https://laminar.sh/docs/platform/mcp) (`https://api.lmnr.ai/v1/mcp`), so your agent can query traces with SQL and manage signals. On first use it opens a browser to sign in to Laminar; there is no API key to paste.
+
+**Cursor**: add `lmnr-ai/lmnr-skills` from **Cursor Settings → Plugins**.
+
+## Install the skill only
 
 ```bash
-npx skills add lmnr-ai/laminar-skills --skill laminar
+npx skills add lmnr-ai/lmnr-skills --skill laminar
 ```
 
 ## Example prompts
@@ -33,3 +39,8 @@ The skill routes from a single `SKILL.md` to focused, one-level-deep reference f
 ## Notes
 
 - You will need a Laminar project API key (dashboard → **Settings → Project API Keys**) to send traces or execute queries.
+
+## Support and privacy
+
+- Support: founders@lmnr.ai
+- [Privacy Policy](https://laminar.sh/policies/privacy) · [Terms of Service](https://laminar.sh/policies/terms)

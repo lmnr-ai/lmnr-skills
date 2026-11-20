@@ -1,0 +1,12 @@
+{
+  "name": "laminar",
+  "owner": { "name": "Laminar", "email": "founders@lmnr.ai" },
+  "plugins": [
+    {
+      "name": "laminar",
+      "source": "./",
+      "description": "Query agent traces with SQL and manage signals through the hosted Laminar MCP server",
+      "category": "monitoring"
+    }
+  ]
+}
