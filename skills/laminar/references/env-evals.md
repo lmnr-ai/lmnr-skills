@@ -326,7 +326,7 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--dry-ru
 
   | Task in `tasks/` | pull | push |
   | --- | --- | --- |
-  | Same as its pin | nothing | nothing |
+  | Same as its pin | nothing | nothing (uploads it if Laminar doesn't have it, e.g. digests `harbor sync` wrote) |
   | Differs from its pin; Laminar doesn't have it (your edit) | refuses (exit 22); `--force` discards it | uploads it and pins it |
   | Differs from its pin; Laminar has it (out of date, e.g. after a `git pull`) | replaces it with the pin | skips it, with a warning |
   | Not pinned; Laminar doesn't have it (a new task) | leaves it | uploads it and pins it |
