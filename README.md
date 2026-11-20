@@ -38,7 +38,7 @@ The skill routes from a single `SKILL.md` to focused, one-level-deep reference f
 
 ## Notes
 
-- You will need a Laminar project API key (dashboard → **Settings → Project API Keys**) to send traces or execute queries.
+- To send traces from your code, or to query with the Laminar CLI, you need a project API key (dashboard → **Settings → Project API Keys**). The plugin's MCP server signs you in through the browser instead.
 
 ## Support and privacy
 
