@@ -190,7 +190,9 @@ This layout is what `lmnr-cli eval run` expects. Each **dataset** is a directory
 holding a `harbor.yaml` and a `tasks/dataset.toml`. Names follow Harbor: the dataset's name in Laminar is
 `[dataset] name` in `tasks/dataset.toml`, and each task's is `[task] name` in its `task.toml`, never the
 directory name. Both are `org/name` (`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`, no `..`,
-up to 255 bytes); the org is free text, e.g. the company or team. Most projects have one dataset. Files
+up to 255 bytes). For the org, use the agent under test (a stable name, like its service or package), else
+the company; the same for a dataset and all its tasks: `support-agent/refunds`,
+`support-agent/refund-double-charge`. Most projects have one dataset. Files
 marked *(optional)* depend on your setup.
 
 A dataset shares no files with another: everything it runs is in its own `agent/` directory, kept to the
@@ -287,15 +289,15 @@ version per task, and is what you commit:
 
 ```toml
 [dataset]
-name = "acme/support"
+name = "support-agent/refunds"
 description = "Refund and billing cases"   # optional; any other keys are kept
 
 [[tasks]]
-name = "acme/customer-complaint"
+name = "support-agent/customer-complaint"
 digest = "sha256:e82b0240004c2fae7c87f0430211ef4652ce1dc15ad1efa8c8bdfb8f0b71a7e0"
 
 [[tasks]]
-name = "acme/refund"
+name = "support-agent/refund"
 digest = "sha256:5fc5d83e2db1dd8cbc6c508e273fbd9604fc38d743443435755405a7ce91809d"
 ```
 
@@ -309,7 +311,7 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--latest
 ```
 
 - `<dataset>` is a folder name or a `[dataset] name`; `--task` globs task names, with or without the org
-  (`refund-*` or `acme/refund-*`).
+  (`refund-*` or `support-agent/refund-*`).
 - Every `task.toml` needs a valid `[task] name`, and no two task directories may share one: pull and push
   fail otherwise. **Adding a case by copying a task directory means changing `[task] name` in the copy**
   before pushing.
