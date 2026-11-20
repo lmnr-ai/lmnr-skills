@@ -1,0 +1,17 @@
+{
+  "name": "laminar",
+  "description": "Laminar plugins for Claude Code",
+  "owner": {
+    "name": "Laminar",
+    "email": "founders@lmnr.ai",
+    "url": "https://laminar.sh"
+  },
+  "plugins": [
+    {
+      "name": "laminar",
+      "source": "./",
+      "description": "Query your AI agents' traces with SQL, find failing runs, and manage signals. Includes the Laminar skill for tracing and evals.",
+      "category": "developer-tools"
+    }
+  ]
+}
