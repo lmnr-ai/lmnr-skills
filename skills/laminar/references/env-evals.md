@@ -37,9 +37,11 @@ lmnr-cli eval run --remote              # run in Laminar, print the run's log un
 
 Run from the repo root: `.env` / `.env.local` are read from the current directory (`--dir` points at
 another evals folder; default `evals`). A dataset is named by its folder or by its `[dataset] name`. Both
-modes need Docker on the machine that runs `lmnr-cli`, which builds the `harbor.yaml` images there. Before
-running, `eval run` pulls the dataset's tasks that are missing from `tasks/` or out of date with
-`tasks/dataset.toml`; a task edited locally runs as it is, with a warning (see "Eval datasets").
+modes need Docker on the machine that runs `lmnr-cli`, which builds the `harbor.yaml` images there. `eval run`
+runs the tasks in `tasks/` exactly as they are, local edits included, and never pulls: run
+`lmnr-cli eval dataset pull` first in a fresh clone or after a `git pull` that moved pins. It warns
+when pinned tasks are missing or older than their pin, and fails when a dataset pins tasks but has none
+on disk (see "Eval datasets").
 
 - **Local (default)** is the iteration loop: run it after every change. It needs `uv`, Docker, and
   `LMNR_PROJECT_API_KEY` (`lmnr-cli setup` writes it to `.env`).
@@ -325,7 +327,8 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--latest
 - A folder without `tasks/dataset.toml` is skipped (with a warning); name it on the command line and the
   error shows the file to create. To pull a dataset into a new checkout, create `<folder>/tasks/dataset.toml`
   with just its `[dataset] name`, then pull.
-- `eval run` pulls missing and out-of-date tasks itself, so a fresh clone only needs `eval run`.
+- `eval run` never pulls: it runs what is in `tasks/`. A fresh clone needs `eval dataset pull` first
+  (`eval run` fails with that hint when a dataset's pinned tasks are all missing).
 - `--dry-run` lists the tasks that would be added, changed or removed, and runs the same checks.
 - **Exit 22** (pull): it would overwrite or delete tasks you edited locally. Push them first if no one
   has pushed those tasks since you pulled them; otherwise save the edits, pull with `--force` (which
