@@ -45,7 +45,7 @@ to see the input, the step that went wrong and the tool results around it.
 ## Pick the traces
 
 Cover the failure mode with a small set, not every trace: each case boots a full stack in its own
-container. 3 to 8 failing cases plus 1 to 3 controls is a good first suite for one cluster.
+container. 3 to 8 failing cases plus 1 to 3 controls is a good first dataset for one cluster.
 
 1. **Split by failure mode.** If the cluster has children, take cases from each leaf cluster
    (`leaf_clusters`), not only from the biggest.
@@ -56,7 +56,7 @@ container. 3 to 8 failing cases plus 1 to 3 controls is a good first suite for o
    this repo, and recent (`traces.release` close to the current revision). Skip traces whose failure came from
    an outage (a provider 5xx, a timeout) rather than the agent's behaviour, unless handling that outage is the
    failure mode.
-4. **Keep the severe ones.** Include the critical events; don't fill the suite with the mildest.
+4. **Keep the severe ones.** Include the critical events; don't fill the dataset with the mildest.
 5. **Add controls:** traces the same signal evaluated and did *not* flag, through the same entry point with
    similar inputs. They catch a fix that over-corrects (refuses, stops calling the tool):
 
@@ -69,7 +69,7 @@ WHERE signal_id = toUUID('<signal_id>')
 LIMIT 50
 ```
 
-Note why you chose each trace as you go; it goes into the suite's README ("Report back").
+Note why you chose each trace as you go; it goes into the dataset's README ("Report back").
 
 ## Turn a trace into a case
 
@@ -86,16 +86,18 @@ Then map the trace onto the case:
 | What the agent read: tool results, retrieved documents, rows it queried | seeded state in `case.json`: database rows, files, or recorded responses at a third-party edge (a mock, reported as env-evals.md requires) |
 | Earlier turns of a multi-turn conversation | seeded history; drive only the turn that failed (`is_copied_context` in a reconstructed trajectory) |
 | The event's `payload` and the signal's `prompt` | the verifier (next section) |
-| The trace id, the cluster, why it was chosen | `[metadata]` in `task.toml` (e.g. `source_trace_id`, `cluster`, `reason`) and the suite's `README.md` |
+| The trace id, the cluster, why it was chosen | `[metadata]` in `task.toml` (e.g. `source_trace_id`, `cluster`, `reason`) and the dataset's `README.md` |
 
 - **Seed what the agent saw, not what it should have seen.** The case reproduces the conditions of the
   failure; with corrected data it tests nothing.
 - **Don't replay the model.** The recorded LLM outputs are what's under test: only tool and service results
   become seed data, and the model runs live ("LLM handling" in env-evals.md).
 - **Rebase timestamps, regenerate ids, replace PII and secrets** ("Seed data the agent can't tell is a test"
-  in env-evals.md). Traces can hold customer data and the cases get committed: never commit raw PII or
-  credentials. Values the project masks arrive masked; replace them with plausible ones.
-- Name task directories after the behaviour (`refund-double-charge`), not the trace id.
+  in env-evals.md). Traces can hold customer data, and the cases get pushed to Laminar and run by the
+  whole team: never put raw PII or credentials in a case. Values the project masks arrive masked; replace
+  them with plausible ones.
+- Name tasks after the behaviour, not the trace id: the directory (`refund-double-charge`) and its
+  `[task] name` in `task.toml` (`<org>/refund-double-charge`), unique within the dataset.
 
 ## The verifier: did the failure recur?
 
@@ -118,7 +120,7 @@ Controls use the same verifier and should pass.
 
 ## Run and read the baseline
 
-Run the suite as env-evals.md describes, against the current code. Expect failing cases: they are the
+Run the dataset as env-evals.md describes, against the current code. Expect failing cases: they are the
 reproduction, and their score is the baseline a fix will move.
 
 - **Cases fail the way the cluster describes:** the eval works. Leave them failing; fixing the agent is a
@@ -134,6 +136,10 @@ reproduction, and their score is the baseline a fix will move.
 Check the verifier once, as env-evals.md asks: a control passes, and a failing case scores 0 for the right
 reason (read its verifier output).
 
+Then push the cases (`lmnr-cli eval dataset push <dataset>`) and commit `tasks/dataset.toml` with the
+rest of `evals/`, so the baseline's task versions are the ones the team pulls and a fix is measured on the same
+cases ("Eval datasets" in env-evals.md).
+
 ## Edge cases
 
 - **Too few traces.** One or two traces still make an eval: build those cases and say the eval is thin. Add
@@ -143,9 +149,14 @@ reason (read its verifier output).
   retention, code not in the repo), stop and say what is missing. The fix is often better instrumentation,
   not an eval.
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
-- **An existing evals folder.** Add the cases to it (a suite for this failure mode, or tasks in the suite
-  with the same entry point) and reuse its image, seed and driver code ("When the harness doesn't fit" in
-  env-evals.md).
+- **An existing evals folder.** Run `lmnr-cli eval dataset pull` first so `tasks/` holds the pinned
+  tasks, then add the cases to it (a dataset for this failure mode, or tasks in the dataset with the same
+  entry point) and reuse its `agent/` ("When the harness doesn't fit" in env-evals.md). An older folder
+  needs moving to the layout in env-evals.md first: `images` from any `lmnr.yaml` into each dataset's
+  `harbor.yaml` (paths relative to the dataset), shared image scripts into each dataset's `agent/`, a
+  `tasks/dataset.toml` with `[dataset] name` and a `[task] name` in every `task.toml` (a `tasks.toml`
+  from an earlier lmnr-cli is no longer read); then `lmnr-cli eval dataset push`, `git rm -r --cached
+  <dataset>/tasks` if the tasks were committed, and commit `tasks/dataset.toml`.
 - **The trajectory.** The cluster exists, so production sends traces to Laminar, but maybe not in a way an
   eval run can capture (an older SDK, a plain OpenTelemetry exporter, another service). Check before relying
   on `LMNR_TRAJECTORY_PATH`, and reconstruct the trajectory if it isn't covered ("Capturing the agent's
@@ -153,9 +164,9 @@ reason (read its verifier output).
 
 ## Report back
 
-The full record goes in the suite's `README.md`: one row per case with its name, source trace, why it was
-chosen and what the verifier checks, controls and synthetic cases marked. It outlives the conversation and
-can be as long as the suite.
+The full record goes in the dataset's `README.md` (`evals/<dataset>/README.md`, committed; not inside
+`tasks/`): one row per case with its name, source trace, why it was chosen and what the verifier checks,
+controls and synthetic cases marked. It outlives the conversation and can be as long as the dataset.
 
 What you tell the user stays short however many cases there are:
 
@@ -163,7 +174,8 @@ What you tell the user stays short however many cases there are:
    cluster), with how many cases it has, why those traces were chosen, what the verifier checks, and one or
    two source traces linked as examples. Count controls and synthetic cases separately. With only a handful
    of cases, a line per case is fine.
-2. The baseline: how many cases reproduce the failure, with a link to the evaluation.
+2. The baseline: how many cases reproduce the failure, with a link to the evaluation, and that the cases
+   are pushed to the project's eval dataset (name it).
 3. Anything that limits what the eval measures: mocks, a reconstructed trajectory, an inferred schema,
    traces that couldn't be used and why.
 4. Where the full list is (the README).
