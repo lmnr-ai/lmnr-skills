@@ -109,7 +109,7 @@ lmnr-cli dataset create my-dataset data.jsonl -o my-dataset.jsonl  # create + wr
 
 ### eval run / eval dataset — Harbor environment evals
 
-`lmnr-cli eval run [<dataset>]` runs the Harbor datasets in `./evals` on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint, one evaluation per run in the dataset's group (`--group <name>` for another). The task folders are stored and versioned in Laminar: `lmnr-cli eval dataset push` uploads new and changed tasks and pins their versions in `<dataset>/tasks/dataset.toml`, Harbor's dataset manifest (commit it; tasks are known by their `[task] name`), `lmnr-cli eval dataset pull` brings `tasks/` to those pins (`--latest` for Laminar's newest). These are separate from the `dataset` commands above. Setup, modes, flags, exit codes and `--json` output are in **[env-evals.md](env-evals.md)**.
+`lmnr-cli eval run [<dataset>]` runs the Harbor datasets in `./evals` on local Docker (or in Laminar sandboxes with `--remote`) and reports every trial to Laminar as an evaluation datapoint, one evaluation per run in the dataset's group (`--group <name>` for another). The task folders are stored and versioned in Laminar: `lmnr-cli eval dataset push` uploads new and changed tasks and pins their versions in `<dataset>/tasks/dataset.toml`, Harbor's dataset manifest (commit it; tasks are known by their `[task] name`), `lmnr-cli eval dataset pull` brings `tasks/` to those pins. Laminar keeps every version and no "latest": `dataset.toml` in git decides which one a dataset uses. These are separate from the `dataset` commands above. Setup, modes, flags, exit codes and `--json` output are in **[env-evals.md](env-evals.md)**.
 
 ## Debugging & session annotation
 
