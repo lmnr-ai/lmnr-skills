@@ -21,5 +21,6 @@
     "llm",
     "agents",
     "mcp"
-  ]
+  ],
+  "mcpServers": "./mcp.json"
 }
