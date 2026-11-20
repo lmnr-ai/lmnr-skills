@@ -92,7 +92,9 @@ lmnr-cli sql query "SELECT trace_id, total_cost FROM spans WHERE span_type = 'LL
 
 For writing scripts, or if you don't have access to the CLI, see [sql-query-api.md](sql-query-api.md).
 
-### dataset — manage datasets
+### dataset — manage datasets (deprecated)
+
+**Deprecated:** `lmnr-cli dataset` still works but prints a warning (on stderr; `--json` output is unaffected) and will be removed in a future release. Don't start new work on it: for eval cases, use `lmnr-cli eval dataset` (see [env-evals.md](env-evals.md)). Use these commands only when the user already depends on a Laminar dataset of datapoints.
 
 List, push, pull, and create datasets from `.jsonl` / `.json` / `.csv` files.
 
