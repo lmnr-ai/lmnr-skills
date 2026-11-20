@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "laminar",
   "version": "0.1.0",
-  "description": "Query your AI agents' traces with SQL, manage signals and LLM profiles, and instrument code with Laminar tracing. Uses the hosted Laminar MCP server with browser sign-in.",
+  "description": "Query your AI agents' traces with SQL, find failing runs, and manage signals. Includes the Laminar skill for tracing and evals.",
   "author": {
     "name": "Laminar",
     "email": "founders@lmnr.ai",

@@ -10,8 +10,8 @@
     {
       "name": "laminar",
       "source": "./",
-      "description": "Query agent traces with SQL and manage signals through the hosted Laminar MCP server, plus the Laminar skill.",
-      "category": "monitoring"
+      "description": "Query your AI agents' traces with SQL, find failing runs, and manage signals. Includes the Laminar skill for tracing and evals.",
+      "category": "developer-tools"
     }
   ]
 }
