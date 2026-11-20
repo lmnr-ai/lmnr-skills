@@ -1,0 +1,30 @@
+{
+  "name": "laminar",
+  "displayName": "Laminar",
+  "version": "0.1.0",
+  "description": "Query your AI agents' traces with SQL, find failing runs, and manage signals. Includes the Laminar skill for tracing and evals.",
+  "author": {
+    "name": "Laminar",
+    "email": "founders@lmnr.ai"
+  },
+  "homepage": "https://laminar.sh/docs/platform/mcp",
+  "repository": "https://github.com/lmnr-ai/lmnr-skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "laminar",
+    "observability",
+    "tracing",
+    "evals",
+    "llm",
+    "agents",
+    "mcp"
+  ],
+  "category": "developer-tools",
+  "tags": [
+    "laminar",
+    "observability",
+    "tracing",
+    "mcp"
+  ],
+  "logo": "assets/logo.svg"
+}
