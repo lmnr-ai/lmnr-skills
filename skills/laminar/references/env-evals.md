@@ -572,8 +572,9 @@ Single container, no docker-in-docker: boot the real dependencies in it.
   inferred, since it can drift from the real one.
 - *Queues/caches/object stores.* If the app has an in-memory or local-disk fallback, use it by leaving the
   URL env unset. That is production-supported code, not a mock.
-- *Third-party edges.* Mocked services managed by `lmnr-cli` are not available yet; keep external SaaS
-  behind the app's existing base-URL/config.
+- *Third-party edges.* For Slack, Linear and GitHub, run a Rystic simulator in the container instead of a
+  mock: [simulated-services.md](simulated-services.md). Other external SaaS stays behind the app's
+  existing base-URL/config.
 - *The app itself.* Run the production artifact: the real package imported/started by the start script,
   or a compiled binary. For a library or callable function, the driver script imports and calls it
   directly in-process; the service boot still happens first.

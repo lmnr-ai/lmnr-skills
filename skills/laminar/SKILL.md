@@ -34,6 +34,7 @@ Read only the reference file(s) for the task at hand. Each is self-contained.
 | Iteratively optimize an agent against an eval score (prompt/pipeline tuning over many runs) — ALSO read whenever a debugging or eval-loop task turns into score-chasing | [references/optimization.md](references/optimization.md) |
 | Build environment evals with Harbor and run them with `lmnr-cli eval run` (locally or `--remote`): the real app and services in isolated containers, each case seeded with (production-derived) data, the outcome graded; task folders stored and versioned in Laminar with `lmnr-cli eval dataset push` / `pull` | [references/env-evals.md](references/env-evals.md) |
 | Turn a signal cluster's traces into eval cases: pick and deduplicate traces, map each onto case data, grade whether the failure recurs, report the cases (with env-evals.md for the harness) | [references/evals-from-clusters.md](references/evals-from-clusters.md) |
+| An env eval's app calls Slack, Linear or GitHub: run a Rystic simulator in the trial instead of a mock (install, boot and seed from the case, point the app at it, grade from its call log) | [references/simulated-services.md](references/simulated-services.md) |
 
 The cross-cutting concepts shared by both SDKs — span context propagation, tags, metadata, sessions, privacy controls, custom LLM cost tracking, flushing — live in the two instrumentation files (one per language) so each is complete on its own.
 
