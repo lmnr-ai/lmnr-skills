@@ -158,10 +158,10 @@ Work through these in order; each step links to the section with the details.
    <dataset>/tasks/<case>` writes the rest ("Directory structure", "Use one prebuilt image"). If the project
    already has eval datasets in Laminar, run `lmnr-cli eval dataset pull` first.
 3. **Build the one image and boot the services**: the Dockerfile installs the services and the app,
-   `setup()` starts them with `ctx.service` and waits for readiness. Pin service versions to what
+   `setup()` starts them with `ctx.container.service` and waits for readiness. Pin service versions to what
    production/compose uses ("Services", "Harbor runtime facts and quirks").
 4. **Seed through the real interface where it is cheap, directly where it is not**, in `setup()` (usually
-   `ctx.run_file("seed.py")`, a script next to `eval.py` that runs in the container and loads
+   `ctx.container.run_file("seed.py")`, a script next to `eval.py` that runs in the container and loads
    `case.json`) ("Data isolation", "Seed data the agent can't tell is a test"):
    - Use the app's own API for anything that involves encryption, validation or derived fields (e.g.
      creating an LLM profile with secrets: the server encrypts them; don't hand-encrypt).
@@ -172,11 +172,11 @@ Work through these in order; each step links to the section with the details.
    - **Synchronous entry point** (an HTTP call or function that returns the result): call it with a timeout
      and record the response.
    - **Asynchronous entry point** (enqueue a job, the app writes a status later): don't sleep. Poll the
-     status the app writes until it is terminal (`ctx.wait_for`), with a hard timeout shorter than the
+     status the app writes until it is terminal (`ctx.container.wait_for`), with a hard timeout shorter than the
      agent's timeout.
    - Map to an outcome `verify()` can grade (a discrete value, plus `failed` and `timeout` so those are
      never mistaken for a model verdict), and record it with the full detail (status, error message,
-     payload, ids, duration) via `ctx.result(...)`.
+     payload, ids, duration) via `ctx.set_result(...)`.
 6. **Write `verify()`** ("The verifier").
 7. **Declare secrets and document the folder**: `secrets` / `env` in `eval.py`, `.env.example`,
    `.gitignore` for `.env` and `evals/*/jobs/`, and `evals/README.md` saying how to run, how to add a case
@@ -248,7 +248,7 @@ evals/
 ```
 
 Keep to these files rather than a helper tree. `seed.py` (any language: `seed.sh` works too) and any other
-harness script reach the container only through `ctx.run_file`, which uploads it for the one command and
+harness script reach the container only through `ctx.container.run_file`, which uploads it for the one command and
 deletes it after, so the image needs no harness files.
 
 A minimal `eval.py`:
@@ -265,40 +265,41 @@ class SupportEval(EvalRunner):
     model = "anthropic/claude-sonnet-5-5"            # ctx.model; --model overrides it
     secrets = ["ANTHROPIC_API_KEY"]                  # names only; values come from the shell or .env
     env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}   # what the app's processes get
-    task_template = {"environment": {"workdir": "/case", "cpus": 2, "memory_mb": 4096},
-                     "agent": {"timeout_sec": 600}}  # merged into each new task.toml
+    new_task_toml = {"environment": {"workdir": "/case", "cpus": 2, "memory_mb": 4096},
+                     "agent": {"timeout_sec": 600}}  # tasks without a task.toml get these
 
     async def setup(self, ctx):
-        await ctx.sh("chmod 777 /logs/agent", user="root")   # service logs, written as postgres
+        await ctx.container.sh("chmod 777 /logs/agent", user="root")  # service logs, written as postgres
         # Foreground commands: a service whose process exits counts as crashed.
-        await ctx.service("postgres", "/usr/lib/postgresql/15/bin/postgres -D /var/lib/pg",
-                          ready="pg_isready -h 127.0.0.1", user="postgres")
-        await ctx.run_file("seed.py", "/case/case.json")
-        await ctx.service("api", "uvicorn app.main:app --port 8080", ready=http("http://127.0.0.1:8080/health"))
+        await ctx.container.service("postgres", "/usr/lib/postgresql/15/bin/postgres -D /var/lib/pg",
+                                    ready="pg_isready -h 127.0.0.1", user="postgres")
+        await ctx.container.run_file("seed.py", "/case/case.json")
+        await ctx.container.service("api", "uvicorn app.main:app --port 8080", ready=http("http://127.0.0.1:8080/health"))
 
     async def run(self, ctx):
-        r = await ctx.sh(f"python -m app.cli handle /case/case.json --model {ctx.model}",
-                         timeout=300, check=False)
+        r = await ctx.container.sh(f"python -m app.cli handle /case/case.json --model {ctx.model}",
+                                   timeout=300, check=False)
         if r.return_code == 0:
-            ctx.result(outcome="completed", reply=r.stdout.strip())
+            ctx.set_result(outcome="completed", reply=r.stdout.strip())
         else:
-            ctx.result(outcome="failed", error=r.stderr[-2000:])
+            ctx.set_result(outcome="failed", error=r.stderr[-2000:])
 
     async def verify(self, ctx):
         expected = ctx.case.expected()               # tests/expected.json, never in the container
         result = ctx.result()                        # what run() recorded
         if result.get("outcome") != "completed":
             return {"refund": 0, "reply": 0}
-        rows = json.loads((await ctx.sh("python -m app.cli dump-refunds --json")).stdout)
+        # Host Python; only the command runs in the container (the agent's, by default).
+        rows = json.loads((await ctx.container.sh("python -m app.cli dump-refunds --json")).stdout)
         reply_ok = await judge(result["reply"], expected["reply_should"])   # your own function
         return {"refund": len(rows) == expected["refund_count"], "reply": reply_ok}
 ```
 
 - **One `EvalRunner` subclass per file.** `eval.py` runs in the Harbor process (your machine, or Laminar's
-  orchestrator for `--remote`), not in the container: commands reach the container through `ctx`. Import
-  the standard library, `lmnr`, and packages listed in `evals/pyproject.toml` (`[project] dependencies`;
-  lmnr-cli installs them next to Harbor, Python 3.13; dependency groups and `requires-python` are
-  ignored). A PEP 723 block at the top of one `eval.py` (`# /// script` / `# dependencies = ["httpx"]` /
+  orchestrator for `--remote`), not in the container: commands reach the container through
+  `ctx.container`. Import the standard library, `lmnr`, and packages listed in `evals/pyproject.toml`
+  (`[project] dependencies`; lmnr-cli installs them next to Harbor, Python 3.13; dependency groups and
+  `requires-python` are ignored). A PEP 723 block at the top of one `eval.py` (`# /// script` / `# dependencies = ["httpx"]` /
   `# ///`) adds packages for that dataset only. Everything the app or a script run in the container
   needs belongs in the image.
   The file is imported more than once (to read its configuration, then by Harbor), so keep module-level
@@ -311,9 +312,9 @@ class SupportEval(EvalRunner):
   ...}`; the first is the default, and a task picks another with `docker_image`.
 - **`model`** is the default model (`ctx.model`); `--model` and `harbor.yaml` override it, so read
   `ctx.model` instead of hard-coding one in `run()`.
-- **`task_template`** holds the `task.toml` tables every case shares (`[environment]` resources and
-  workdir, `[agent] timeout_sec`); `lmnr-cli` writes it into each new `task.toml`. Existing ones aren't
-  rewritten: change those by hand.
+- **`new_task_toml`** holds the `task.toml` tables every case shares (`[environment]` resources and
+  workdir, `[agent] timeout_sec`); `lmnr-cli` writes them into a task only when it has no `task.toml` yet.
+  Existing ones aren't rewritten: change those by hand.
 - **`harbor.yaml` is optional.** Without it the dataset runs `tasks/` with Harbor's defaults. Add one for
   job settings (`n_concurrent_trials`, `timeout_multiplier`, `datasets` / `tasks` filters) or a model
   sweep: each `agents` entry with only `model_name` (and extra `kwargs`) runs the runner with that model.
@@ -333,7 +334,7 @@ uploads) one small layer. `COPY` the specific paths the image needs, never `COPY
 BuildKit only sends what `COPY`/`ADD` reference, so a large repo costs nothing, while `COPY . .` would bake
 in all of it, Harbor's job output and every task's `tests/` (reference answers) included. Copy nothing
 from `evals/`. `.dockerignore` applies, and `lmnr-cli` never lets `.git` or `.env*` into a build. The
-readiness checks of `ctx.service` / `ctx.wait_for` run under `bash`, so the image needs it.
+readiness checks of `ctx.container.service` / `ctx.container.wait_for` run under `bash`, so the image needs it.
 
 ```dockerfile
 FROM python:3.12-slim-bookworm
@@ -483,7 +484,7 @@ class SupportRunner(EvalRunner):
     env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}
 
     async def setup(self, ctx):
-        await ctx.run_file("seed.py")                               # evals/_shared/seed.py
+        await ctx.container.run_file("seed.py")                               # evals/_shared/seed.py
 
     async def run(self, ctx): ...
     async def verify(self, ctx): ...
@@ -503,9 +504,9 @@ class RefundsEval(SupportRunner):
   `env = {**SupportRunner.env, ...}`, `secrets = SupportRunner.secrets + [...]`, an image dict whose
   default is `SupportRunner.image`.
 - **Relative paths resolve against the file that declares them.** `Image.from_dockerfile(...)` resolves
-  against the file it is called in, `ctx.run_file(...)` / `ctx.copy(...)` against the file whose code calls
+  against the file it is called in, `ctx.container.run_file(...)` / `ctx.container.copy(...)` against the file whose code calls
   them. So the shared runner's Dockerfile and scripts live next to it and work from every dataset, while a
-  subclass's own `ctx.run_file("x.py")` finds `x.py` next to its `eval.py`.
+  subclass's own `ctx.container.run_file("x.py")` finds `x.py` next to its `eval.py`.
 - **The image comes only from the runner class chain.** Tasks pick one of the runner's named images and
   nothing else ("Use one prebuilt image"); what differs per case is data the shared code reads.
 - Shared modules import the standard library, `lmnr` and packages from `evals/pyproject.toml`, never
@@ -522,7 +523,7 @@ Declare secrets by name in `eval.py`, never as values and never as `harbor run` 
   an undeclared name is an error.
 - `env = {...}` is the env of every command `ctx` runs in the container, in every phase. Pass a secret
   with `secret("NAME")` (it must be in `secrets`); plain strings are settings. A secret that isn't in
-  `env` never reaches the container. Per-command extras go in `ctx.sh(..., env={...})`, but in `setup` /
+  `env` never reaches the container. Per-command extras go in `ctx.container.sh(..., env={...})`, but in `setup` /
   `run` / `collect` they can't override a key of `env` (Harbor applies the agent env last).
 
 `lmnr-cli eval run` reads each secret from the shell, then from `.env.local` / `.env` in the current
@@ -540,37 +541,46 @@ Each trial runs four phases, each given a `ctx` for that trial:
 
 - **`setup(ctx)`**: start the services and seed this case's data, after Harbor uploaded `environment/`
   into the workdir. Default: run the case's own `environment/seed.py` / `seed.sh` if it has one.
-- **`run(ctx)`**: drive the entry point and record the outcome with `ctx.result(...)`. For a single
-  command, set `entrypoint = "..."` instead of defining it.
+- **`run(ctx)`**: drive the entry point and record the outcome with `ctx.set_result(...)`. For a single
+  command, set `run_command = "..."` instead of defining it.
 - **`collect(ctx)`** *(optional)*: runs after `run()`, also when it raised or timed out (with two minutes
   of its own after a timeout). Export what the run left behind: a reconstructed trajectory, extra logs,
-  state for grading (`ctx.save_artifact`, see "The verifier").
+  state for grading (`ctx.artifacts.save`, see "The verifier").
 - **`verify(ctx)`**: grade (see "The verifier").
 
-What `ctx` offers:
+Every method runs in the Harbor process, on the host (your machine, or Laminar's orchestrator for
+`--remote`), never in the container. `ctx` splits along that line:
 
-- `ctx.sh(cmd, env=None, cwd=None, user="agent", timeout=None, check=True)`: a shell command in the
-  container; returns `stdout`, `stderr`, `return_code`, and raises `CommandError` (with the output's tail)
-  on a non-zero exit unless `check=False`. `user="agent"` is the task's agent user (the verifier user in
+| | Where it acts | What |
+|---|---|---|
+| `ctx.container.*` | in the container | `sh`, `run_file`, `service`, `wait_for`, `copy`, `write_file`, `read_text`, `read_json` |
+| the rest of `ctx` | on the host | `case`, `model`, `env`, `logger`, `set_result` / `result`, `artifacts`, `secrets` (verify) |
+
+`ctx.container` is the agent's container in `setup` / `run` / `collect`, and the grading container in
+`verify` (the same one by default; see "The verifier"). Anything that must run next to the app goes
+through it; plain Python in your methods (a judge call, reading `ctx.case.expected()`) runs on the host.
+
+- `ctx.container.sh(cmd, env=None, cwd=None, user="agent", timeout=None, check=True)`: a shell command;
+  returns `stdout`, `stderr`, `return_code`, and raises `CommandError` (with the output's tail) on a
+  non-zero exit unless `check=False`. `user="agent"` is the task's agent user (the verifier user in
   `verify()`), `"root"` is root.
-- `ctx.run_file("seed.py", *args, ...)`: uploads a host file to a fresh `/tmp` directory, runs it
-  (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where the
+- `ctx.container.run_file("seed.py", *args, ...)`: uploads a host file to a fresh `/tmp` directory, runs
+  it (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where the
   agent under test could find them. A relative path resolves against the file whose code calls it
-  (`eval.py`, or a shared module); `ctx.copy` resolves `host` the same way.
-- `ctx.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: starts `cmd` in the background
-  (output in `/logs/agent/<name>.log`) and waits until `ready` passes. `cmd` must stay in the foreground
-  (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`): a process that exits counts as crashed.
-  `user` also takes a service user (`"postgres"`). Ready checks: `port(5432)`, `http(url)`,
+  (`eval.py`, or a shared module); `ctx.container.copy` resolves `host` the same way.
+- `ctx.container.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: starts `cmd` in the
+  background (output in `/logs/agent/<name>.log`) and waits until `ready` passes. `cmd` must stay in the
+  foreground (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`): a process that exits counts as
+  crashed. `user` also takes a service user (`"postgres"`). Ready checks: `port(5432)`, `http(url)`,
   `cmd("pg_isready")` (from `lmnr.evals`), or a plain string command. If the process exits or isn't ready
-  in time, the error carries the end of its log. `ctx.wait_for(ready, timeout=60)` waits without starting
-  anything (an async job's terminal status, say).
-- `ctx.copy(host, container)` copies a file or directory from the host (the machine running Harbor: yours
-  locally, Laminar's orchestrator on `--remote`; relative paths are from `eval.py`'s directory) into the
-  container. `ctx.write_file(path, content)`, `ctx.read_text(path)` and `ctx.read_json(path)` write and
-  read files in the container.
-- `ctx.result(**fields)` records fields in the trial's `agent/result.json` (merged with earlier calls);
-  `ctx.result()` reads them back, in `verify()` too, in both verifier modes. The fields show as the trial's
-  output in Laminar when there is no trajectory.
+  in time, the error carries the end of its log. `ctx.container.wait_for(ready, timeout=60)` waits
+  without starting anything (an async job's terminal status, say).
+- `ctx.container.copy(host, path)` copies a file or directory from the host into the container at
+  `path`. `ctx.container.write_file(path, content)`, `read_text(path)` and `read_json(path)` write and
+  read container files.
+- `ctx.set_result(**fields)` (agent phase) records fields in the trial's `agent/result.json` on the host,
+  merged with earlier calls; `ctx.result()` reads them back, in `verify()` too, in both verifier modes.
+  The fields show as the trial's output in Laminar when there is no trajectory.
 - `ctx.case`: `name` (`[task] name`), `dir` (the task directory on the host), `metadata` (`[metadata]`
   in `task.toml`), `instruction`, `file(path)` (under `environment/`), `expected()` (`tests/expected.json`),
   `fixture(path)` / `fixture_json(path)` (under `tests/fixtures/`).
@@ -579,7 +589,7 @@ What `ctx` offers:
 Rules that keep cases comparable:
 
 - **An exception fails the trial** (Harbor records it in `exception.txt`, and there is no reward). Use
-  `check=False` and record the product's own failures as outcomes (`ctx.result(outcome="failed", ...)`,
+  `check=False` and record the product's own failures as outcomes (`ctx.set_result(outcome="failed", ...)`,
   `"timeout"`), so `verify()` grades them; let only harness errors (a service that won't start, a seed
   error) raise.
 - `[agent] timeout_sec` in `task.toml` bounds `setup` + `run`; keep command timeouts below it.
@@ -588,9 +598,10 @@ Rules that keep cases comparable:
 ## The verifier
 
 `verify(ctx)` returns the rewards: a number, a bool (`1` / `0`), or a dict of them for several scores
-(`{"refund": True, "reply": 0.5}`), each charted in Laminar. It runs in the Harbor process; its `ctx`
-commands run in the verifier's container, so it can query the app's database, read files the run wrote
-and compare against `ctx.case.expected()`. One method grades every case. Where its commands run is
+(`{"refund": True, "reply": 0.5}`), each charted in Laminar. One method grades every case. It runs in the
+Harbor process (the host), so it can call an LLM judge with a key the container never sees and read
+`ctx.case.expected()`, which never enters the container; `ctx.container` commands run in the grading
+container, so it can query the app's database or read files the run wrote. Which container that is, is
 `[verifier] environment_mode` in `task.toml`:
 
 - **`"shared"`** (the default): the agent's container, after the agent finishes, with everything the run
@@ -609,18 +620,18 @@ class SupportEval(EvalRunner):
     artifacts = ["/srv/app/out/", Artifact("/var/lib/app/state.db", destination="app.db")]
 
     async def collect(self, ctx):
-        await ctx.sh("python -m app.cli dump-state > /tmp/state.json", check=False)
-        await ctx.save_artifact("/tmp/state.json")   # -> /logs/artifacts/state.json
+        await ctx.container.sh("python -m app.cli dump-state > /tmp/state.json", check=False)
+        await ctx.artifacts.save("/tmp/state.json")  # -> /logs/artifacts/state.json
 ```
 
-- `ctx.save_artifact(path, dest=None)` copies a container file or folder to `/logs/artifacts/<dest>`
-  (default: its name), replacing whatever the agent under test may have put there. Snapshot runtime state
+- `ctx.artifacts.save(path, name=None)` (agent phase) copies a container file or folder to
+  `/logs/artifacts/<name>` (default: its basename), replacing whatever the agent under test may have put there. Snapshot runtime state
   (database contents, in-memory counters) this way before the container goes away.
 - In `verify()`, `ctx.artifacts.read_text(path)` / `read_json(path)` / `path(path)` read them on the host
   by the container path they came from (`"/srv/app/out/report.json"`, `"/logs/artifacts/state.json"`),
   in both modes; `ctx.artifacts.list()` lists what was collected.
 - In `"separate"` mode the grading container gets them too: declared ones at their original path, saved
-  ones under `/logs/artifacts/`, so a script run with `ctx.run_file` can read them there.
+  ones under `/logs/artifacts/`, so a script run with `ctx.container.run_file` can read them there.
 - Declare them on the runner, not in `harbor.yaml` (`lmnr-cli` rejects that); a task's own
   `artifacts = [...]` in `task.toml` adds to them.
 
@@ -634,8 +645,11 @@ quality of a reply). lmnr-python's `examples/agent-evals` has one.
 In Laminar, `verify()` is traced under the trial's verifier span, with LLM calls it makes as LLM spans,
 and its log (`ctx.logger` lines) is the trial's `verifier/test-stdout.txt`.
 
-To grade with each task's own `tests/test.sh` instead (an imported Harbor dataset), set `verify = "task"`:
-the script writes its reward to `/logs/verifier/reward.txt`, and `lmnr-cli` leaves the verifier to Harbor.
+**Grading an imported Harbor dataset.** Its tasks bring their own `tests/test.sh`. To grade with those
+instead of `verify()`, set `grade_with_test_sh = True` on the runner and don't define `verify()` (both is
+an error). Harbor's default verifier then runs each task's `test.sh` in the grading container, the script
+writes its reward to `/logs/verifier/reward.txt`, and there is no verify `ctx`. `lmnr-cli` doesn't write
+stub `test.sh` files then, and warns about a task without one.
 
 ## Capturing the agent's trajectory
 
@@ -677,7 +691,7 @@ lives and how tool calls are stored. Common places:
 - the entry point's response, if it returns the full message list.
 
 Export the trajectory in `collect()`, which runs after `run()` including on `failed` / `timeout` (partial
-trajectories are the most useful): `ctx.run_file` a script that reads this case's history from the store,
+trajectories are the most useful): `ctx.container.run_file` a script that reads this case's history from the store,
 inside the container, and writes `/logs/agent/trajectory.json` in Harbor's ATIF format, which the plugin
 replays as `LLM` and `TOOL` spans:
 - each message becomes a step with `step_id` (required; 1, 2, 3… in order), `source` (`system` / `user` /
@@ -700,7 +714,7 @@ exact prompt of each LLM call (one stored turn may be several calls), retries an
 `harbor.models.trajectories.Trajectory` (`uvx --from harbor==0.25.0 python`), and check the replayed steps
 in the trial's trace. Tell the user the trajectory is reconstructed and which fields it lacks.
 
-If the app keeps no history at all, the trial has only `ctx.result(...)` and the service logs. Say so and
+If the app keeps no history at all, the trial has only `ctx.set_result(...)` and the service logs. Say so and
 suggest instrumentation.
 
 ## Seed data the agent can't tell is a test
@@ -732,7 +746,7 @@ from how it behaves in production, and then the eval measures the wrong thing. F
 Goal: the container contains everything the entry point touches, started the way production starts it.
 Single container, no docker-in-docker: boot the real dependencies in it.
 
-- *Databases.* Start them in `setup()` as background processes (`ctx.service`) with the engine's own
+- *Databases.* Start them in `setup()` as background processes (`ctx.container.service`) with the engine's own
   bootstrap (`initdb`, `clickhouse server`, `mysqld`, `redis-server`...). Use trust/no-password auth locally and a throwaway
   password where the app's connection string requires one.
 - *Getting the binaries.* Use the simplest source that gives you the version production runs: the
@@ -754,9 +768,9 @@ Single container, no docker-in-docker: boot the real dependencies in it.
 - *Third-party edges.* `EvalRunner`'s `services` and `mocks` are not supported yet (setting them is an
   error); keep external SaaS behind the app's existing base-URL/config.
 - *The app itself.* Run the production artifact: the real package started by `setup()`, or a compiled
-  binary. For a library or callable function, `run()` runs a small script (`ctx.run_file`) that imports
+  binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that imports
   and calls it in-process; the service boot still happens first.
-- *Readiness.* Give every `ctx.service` a `ready` check: the health endpoint (`http(...)`), the port
+- *Readiness.* Give every `ctx.container.service` a `ready` check: the health endpoint (`http(...)`), the port
   (`port(...)`), or the engine's own probe (`cmd("pg_isready")`). A service that dies or never gets ready
   fails the trial with the end of its log.
 - *Env.* `ctx` commands get only the runner's `env` plus what Harbor sets, never the host's shell. If the
@@ -794,16 +808,16 @@ missing them can start but silently never bind its port.
 ## Harbor runtime facts and quirks
 - Harbor starts the container with its own keep-alive command (`sleep infinity` on local Docker), so don't
   rely on `CMD` or a base image's entrypoint (the `postgres` image's init) to start anything. `setup()`
-  starts every service with `ctx.service` (`nohup`, output to `/logs/agent/<name>.log`), and the
-  services survive after it returns. A background process started with plain `ctx.sh` must redirect its
+  starts every service with `ctx.container.service` (`nohup`, output to `/logs/agent/<name>.log`), and the
+  services survive after it returns. A background process started with plain `ctx.container.sh` must redirect its
   output, or the call may not return.
 - **No ports are published to the host.** Every call to the app must come from a process inside the
-  container (`ctx.sh`, `ctx.run_file`).
+  container (`ctx.container.sh`, `ctx.container.run_file`).
 - `/logs/agent/` and `/logs/verifier/` are shared between container and host. Write every log under
   `/logs/agent/`.
 - Some services refuse to run as root (Postgres). Start them as their service user
-  (`ctx.service(..., user="postgres")`), and make the log directory writable by that user first
-  (`await ctx.sh("chmod 777 /logs/agent", user="root")`).
+  (`ctx.container.service(..., user="postgres")`), and make the log directory writable by that user first
+  (`await ctx.container.sh("chmod 777 /logs/agent", user="root")`).
 - Some servers need a password in the connection string even when the database uses trust auth; use a dummy.
 - Keep command timeouts below the task's `[agent] timeout_sec`, and the entry point's own timeout below
   both.
@@ -825,7 +839,7 @@ seed data, the verifier, what to report), read [evals-from-clusters.md](evals-fr
 Once the harness exists, a case is its data:
 
 1. `lmnr-cli eval task new evals/<dataset>/tasks/<case-dir>` writes `task.toml` (`[task] name =
-   "<org>/<case-dir>"` with the `[dataset] name`'s org, `docker_image`, the runner's `task_template`),
+   "<org>/<case-dir>"` with the `[dataset] name`'s org, `docker_image`, the runner's `new_task_toml`),
    `instruction.md` and `tests/test.sh` (stubs). `eval run` and `eval dataset push` write the same files
    for any task directory that lacks them, and add a missing `[task] name` / `docker_image` to an existing
    `task.toml`, so a directory with just `environment/` and `tests/expected.json` is a case.
@@ -906,7 +920,7 @@ rarely the right fit here.)
 
 Moving such a dataset to `eval.py`: `agent.py`'s `run()` becomes `setup()` + `run()`, `verify.py` becomes
 `verify()`, `harbor.yaml`'s `images` and agent `env` move to `image` / `secrets` / `env`, and the image
-stops copying the scripts (`seed.py` stays, run with `ctx.run_file`).
+stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
 
 ## Checklist
 - [ ] Entry point, inputs and terminal state identified; no production code changed (or a change agreed
@@ -926,8 +940,8 @@ stops copying the scripts (`seed.py` stays, run with `ctx.run_file`).
 - [ ] Real services seeded for as much of the stack as possible; any mock is a last resort and reported to
       the user; schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
-- [ ] `setup()` starts every service with `ctx.service` and a `ready` check; `run()` passes `ctx.model`,
-      records the outcome (including `failed` / `timeout`) with `ctx.result(...)`, and raises only for
+- [ ] `setup()` starts every service with `ctx.container.service` and a `ready` check; `run()` passes `ctx.model`,
+      records the outcome (including `failed` / `timeout`) with `ctx.set_result(...)`, and raises only for
       harness errors
 - [ ] `verify()` grades from the terminal state and `ctx.case.expected()`; reference answers only in
       `tests/`; an LLM judge only for what can't be checked exactly
