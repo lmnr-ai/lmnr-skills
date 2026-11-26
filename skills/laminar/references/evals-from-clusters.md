@@ -105,9 +105,9 @@ For these cases reward `1` means the failure did not happen, `0` that it did. Ch
 failure:
 
 - **A mechanical symptom gets a deterministic check:** a tool error, the wrong tool, a missing call, invalid
-  output, a loop past N steps, a forbidden value in the answer. Check the artifacts (`result.json`, the
-  trajectory, database state) directly. Prefer this whenever it fits: it is cheap and never flaky.
-- **A judgement call gets an LLM judge built from the signal.** Use the signal's `prompt` as the rubric,
+  output, a loop past N steps, a forbidden value in the answer. Check the artifacts (`ctx.result()`, the
+  trajectory, database state) directly in `verify()`. Prefer this whenever it fits: it is cheap and never flaky.
+- **A judgement call gets an LLM judge built from the signal** (`ctx.judge`). Use the signal's `prompt` as the rubric,
   narrowed to this failure mode with the cluster name and a few event payloads, and grade the run's output
   and trajectory. The signal already says what the project calls a failure; don't invent another definition.
 - **Also check the task got done.** "The failure is absent" alone passes an agent that refused or did
@@ -151,8 +151,9 @@ cases ("Eval datasets" in env-evals.md).
 - **Too many traces.** Sample across leaf clusters, severity and time instead of taking the newest N.
 - **An existing evals folder.** Run `lmnr-cli eval dataset pull` first so `tasks/` holds the pinned
   tasks, then add the cases to it (a dataset for this failure mode, or tasks in the dataset with the same
-  entry point) and reuse its `agent/` ("When the harness doesn't fit" in env-evals.md). An older folder
-  needs moving to the layout in env-evals.md first: `images` from any `lmnr.yaml` into each dataset's
+  entry point) and reuse its `agent/` ("When the harness doesn't fit" in env-evals.md); a dataset with a
+  hand-written Harbor agent stays as it is, or moves to `eval.py` ("Without eval.py" in env-evals.md). An
+  older folder needs moving to the layout in env-evals.md first: `images` from any `lmnr.yaml` into each dataset's
   `harbor.yaml` (paths relative to the dataset), shared image scripts into each dataset's `agent/`, a
   `tasks/dataset.toml` with `[dataset] name` and a `[task] name` in every `task.toml` (a `tasks.toml`
   from an earlier lmnr-cli is no longer read); then `lmnr-cli eval dataset push`, `git rm -r --cached
