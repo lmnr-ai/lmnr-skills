@@ -52,10 +52,14 @@ simulator here.
 ## Install the CLI in the image
 
 Install the `rystic` CLI in `agent/Dockerfile`, pinned. The installer needs `curl` and `tar` and puts the
-binary in `/usr/local/bin` when run as root. It needs no key:
+binary in `/usr/local/bin` when run as root. It needs no key. Save the installer before running it:
+`RUN` has no `pipefail`, so `curl ... | sh` passes on a failed download and leaves an image without
+`rystic`. The last command fails the build if the binary doesn't run:
 
 ```dockerfile
-RUN curl -fsSL https://www.rystic.ai/install.sh | RYSTIC_VERSION=0.0.93 RYSTIC_NO_LOGIN=1 CI=1 sh
+RUN curl -fsSL https://www.rystic.ai/install.sh -o /tmp/rystic-install.sh \
+    && RYSTIC_VERSION=0.0.93 RYSTIC_NO_LOGIN=1 CI=1 sh /tmp/rystic-install.sh \
+    && rm /tmp/rystic-install.sh && rystic docs slack-twin >/dev/null
 ```
 
 Don't download simulators during the build: that needs a key, and a key in a build step ends up in the
