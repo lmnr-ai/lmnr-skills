@@ -62,9 +62,10 @@ on disk (see "Eval datasets").
   unpushed local edits are. It needs `lmnr-cli login` (or `LMNR_PROJECT_API_KEY` in CI), then prints the
   run's log (Harbor's output) until the run ends and exits with its outcome. Ctrl-C stops following; the run
   goes on. Results appear in the project's evaluations as trials finish. On the evaluation page each trial
-  has its trace and a **Files** view with three folders: `task/` (the exact task version it ran), `agent/`
-  (the dataset's `agent/` folder) and `logs/` (Harbor's output: your `/logs/agent/` files, the verifier
-  output, `exception.txt`; `agent/` and `logs/` start collapsed), so debug a remote failure there. Local
+  has its trace and a **Files** view with up to four folders: `task/` (the exact task version it ran),
+  `agent/` (the dataset's `agent/` folder), `runner/` (shared modules its runner imported, see "Shared
+  runners") and `logs/` (Harbor's output: your `/logs/agent/` files, the verifier output, `exception.txt`;
+  all but `task/` start collapsed), so debug a remote failure there. Local
   runs upload nothing, so their trials show only `task/`, and only for task versions that were pushed. The
   evaluation's header links to the eval dataset the run used, once that dataset has been pushed; in its
   table, a task that ran a pushed version is a chip that opens that version's files, and so is the task
@@ -219,13 +220,14 @@ the company; the same for a dataset and all its tasks: `support-agent/refunds`,
 `support-agent/refund-double-charge`. Most projects have one dataset. Files
 marked *(optional)* depend on your setup.
 
-A dataset shares no files with another: everything it runs is in its own `agent/` directory, kept to the
-same few files in every project.
+Everything specific to a dataset is in its own `agent/` directory, kept to the same few files in every
+project. Code several datasets share (a whole runner) goes in `evals/_shared/` ("Shared runners").
 
 ```
 evals/
   README.md                       # how to run, how to add a case
   .gitignore                      # */tasks/* and !*/tasks/dataset.toml  (lmnr-cli adds them)
+  _shared/                        # (optional) Python several datasets' eval.py import ("Shared runners")
   <folder>/                       # e.g. support
     harbor.yaml                   # (optional) Harbor JobConfig settings: concurrency, timeouts, a model sweep
     agent/
@@ -245,8 +247,8 @@ evals/
 ```
 
 Keep to these files rather than a helper tree. `seed.py` (any language: `seed.sh` works too) and any other
-script next to `eval.py` reach the container only through `ctx.run_file`, which uploads it for the one
-command and deletes it after, so the image needs no harness files.
+harness script reach the container only through `ctx.run_file`, which uploads it for the one command and
+deletes it after, so the image needs no harness files.
 
 A minimal `eval.py`:
 
@@ -299,7 +301,8 @@ class SupportEval(EvalRunner):
   (`# /// script` / `# dependencies = ["httpx"]` / `# ///`); everything the app needs belongs in the image.
   The file is imported more than once (to read its configuration, then by Harbor), so keep module-level
   code to constants and definitions.
-- **`image`**: `Image.from_dockerfile(path, context=...)` (relative to `eval.py`; `context` is the `docker
+- **`image`**: `Image.from_dockerfile(path, context=...)` (relative to the file that calls it, here
+  `eval.py`; `context` is the `docker
   build` context, default the Dockerfile's directory; use the repo root so the image copies the app source
   and migrations from the live tree) or `Image.from_registry("python:3.13-slim")` for a public image. The
   image is named `<dataset folder>-evals`. Several images: a dict, `{"support-evals": ..., "support-gpu":
@@ -454,16 +457,59 @@ memory_mb = 4096
 - **Resources.** A full stack per case is heavy: set `cpus`/`memory_mb`. Locally every trial shares the
   host, so keep `n_concurrent_trials` to what it can run. On `--remote` each trial gets its own sandbox;
   raise concurrency for that run with `--n-concurrent`.
-- A per-task Dockerfile is the exception, for when a case genuinely needs a different system setup that
-  can't be expressed as data. **Remove `docker_image` from that task** (`lmnr-cli` doesn't add it to a
-  task with an `environment/Dockerfile`): while it is set Harbor uses the
-  image and ignores the Dockerfile (unless the job sets `environment.force_build: true`), and with a
-  Dockerfile present it doesn't upload `environment/` either. The build context is the task's
-  `environment/` directory and nothing is uploaded at start, so the Dockerfile must `COPY` the case data
-  itself. Prefer `FROM` a public base plus the difference; a task can't `FROM` an image that only exists
-  in `eval.py`.
-- An image name that isn't one of the dataset's images is pulled from its registry, so public images work
-  as-is.
+- **Tasks never define an image.** A task with its own `environment/Dockerfile`, or a `docker_image` the
+  runner doesn't declare, fails `eval run` and `eval dataset push` (exit `16`) before anything runs:
+  Harbor would build or pull that image itself, without what the runner adds to its images. When a case
+  genuinely needs a different system, declare a named image on the runner and pick it in that task:
+  `image = {"support-evals": Image.from_dockerfile("Dockerfile", ...), "support-ocr":
+  Image.from_dockerfile("Dockerfile.ocr", ...)}` (the first is the default), then `docker_image =
+  "support-ocr"` in its `task.toml`. Everything else that varies per case is data: `environment/`,
+  `tests/fixtures/`, `[metadata]` in `task.toml`.
+
+## Shared runners
+
+When several datasets test the same product with the same harness (same app, services and entry
+point), they share the runner instead of copying it, and so share one image:
+
+```python
+# evals/_shared/support.py
+from lmnr.evals import EvalRunner, Image, secret
+
+class SupportRunner(EvalRunner):
+    image = Image.from_dockerfile("Dockerfile", context="../..")   # evals/_shared/Dockerfile
+    secrets = ["ANTHROPIC_API_KEY"]
+    env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}
+
+    async def setup(self, ctx):
+        await ctx.run_file("seed.py")                               # evals/_shared/seed.py
+
+    async def run(self, ctx): ...
+    async def verify(self, ctx): ...
+
+# evals/refunds/agent/eval.py
+from _shared.support import SupportRunner
+
+class RefundsEval(SupportRunner):
+    env = {**SupportRunner.env, "SUPPORT_QUEUE": "refunds"}       # the only difference, visible here
+```
+
+- Any folder directly in `evals/` that isn't a dataset (no `harbor.yaml`, no `agent/eval.py`; by
+  convention `_shared/`) holds shared Python. The evals folder is on the import path both when `lmnr-cli`
+  reads `eval.py` and when Harbor runs it, and `--remote` uploads the folder with the run.
+- Each `eval.py` still defines exactly one runner class, which can be a one-line subclass. Write a
+  difference as an explicit extension of the parent's attribute, so a reader sees it in one place:
+  `env = {**SupportRunner.env, ...}`, `secrets = SupportRunner.secrets + [...]`, an image dict whose
+  default is `SupportRunner.image`.
+- **Relative paths resolve against the file that declares them.** `Image.from_dockerfile(...)` resolves
+  against the file it is called in, `ctx.run_file(...)` / `ctx.copy(...)` against the file whose code calls
+  them. So the shared runner's Dockerfile and scripts live next to it and work from every dataset, while a
+  subclass's own `ctx.run_file("x.py")` finds `x.py` next to its `eval.py`.
+- **The image comes only from the runner class chain.** Tasks pick one of the runner's named images and
+  nothing else ("Use one prebuilt image"); what differs per case is data the shared code reads.
+- Shared modules import the standard library, `lmnr` and packages from the PEP 723 block of every
+  `eval.py` that uses them, never `harbor`.
+- A remote run's trial **Files** view shows the shared modules the runner imported in `runner/`, next to
+  `agent/`.
 
 ## Secrets and env vars
 
@@ -504,9 +550,10 @@ What `ctx` offers:
   container; returns `stdout`, `stderr`, `return_code`, and raises `CommandError` (with the output's tail)
   on a non-zero exit unless `check=False`. `user="agent"` is the task's agent user (the verifier user in
   `verify()`), `"root"` is root.
-- `ctx.run_file("seed.py", *args, ...)`: uploads a file next to `eval.py` to a fresh `/tmp` directory,
-  runs it (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where
-  the agent under test could find them.
+- `ctx.run_file("seed.py", *args, ...)`: uploads a host file to a fresh `/tmp` directory, runs it
+  (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where the
+  agent under test could find them. A relative path resolves against the file whose code calls it
+  (`eval.py`, or a shared module); `ctx.copy` resolves `host` the same way.
 - `ctx.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: starts `cmd` in the background
   (output in `/logs/agent/<name>.log`) and waits until `ready` passes. `cmd` must stay in the foreground
   (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`): a process that exits counts as crashed.
@@ -786,6 +833,13 @@ or a verifier in `harbor.yaml`. The layout replaces `eval.py` with:
                        # tests/test.sh (`python /opt/agent/verify.py`), tests/expected.json; all by hand
 ```
 
+In this layout a task may also bring its own image, as plain Harbor allows: an `environment/Dockerfile`
+with no `docker_image` (while `docker_image` is set Harbor uses it and ignores the Dockerfile, unless the
+job sets `environment.force_build: true`). Harbor then uploads nothing at start, so the Dockerfile must
+`COPY` the case data from its build context, the task's `environment/`; it can't `FROM` an image that
+exists only in `harbor.yaml`. A `docker_image` that isn't a `harbor.yaml` image is pulled from its
+registry.
+
 ```yaml
 agents:
   - import_path: agent.agent:MyAppAgent      # relative to the dataset dir, which is on PYTHONPATH
@@ -830,12 +884,15 @@ stops copying the scripts (`seed.py` stays, run with `ctx.run_file`).
 - [ ] Entry point, inputs and terminal state identified; no production code changed (or a change agreed
       with the user)
 - [ ] Layout as in "Directory structure": `evals/<dataset>/agent/eval.py` with one `EvalRunner`,
-      everything the dataset runs in its own `agent/` (Dockerfile, eval.py, optional seed script), tasks
-      under `evals/<dataset>/tasks/`, `evals/.gitignore` with `*/tasks/*` and `!*/tasks/dataset.toml`
+      everything specific to the dataset in its own `agent/` (Dockerfile, eval.py, optional seed
+      script), tasks under `evals/<dataset>/tasks/`, `evals/.gitignore` with `*/tasks/*` and
+      `!*/tasks/dataset.toml`
 - [ ] `tasks/dataset.toml` has `[dataset] name = "<org>/<name>"`; every `task.toml` has a unique
       `[task] name = "<org>/<case>"` (`lmnr-cli` writes it for new cases)
-- [ ] One image from `eval.py`, referenced by `docker_image`; per-case data in `environment/`; no
-      per-task Dockerfile (unless justified, and then no `docker_image` on that task)
+- [ ] One image from `eval.py` (named variants on the runner if a case needs another system), referenced
+      by `docker_image`; per-case data in `environment/`; no per-task Dockerfile
+- [ ] A harness several datasets share is one runner in `evals/_shared/`, subclassed in each `eval.py`
+      with its differences written as explicit extensions of the parent's attributes
 - [ ] The Dockerfile goes from rarely to often changing layers and copies specific paths, nothing from
       `evals/`; never `COPY . .`
 - [ ] Real services seeded for as much of the stack as possible; any mock is a last resort and reported to
