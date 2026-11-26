@@ -107,7 +107,8 @@ failure:
 - **A mechanical symptom gets a deterministic check:** a tool error, the wrong tool, a missing call, invalid
   output, a loop past N steps, a forbidden value in the answer. Check the artifacts (`ctx.result()`, the
   trajectory, database state) directly in `verify()`. Prefer this whenever it fits: it is cheap and never flaky.
-- **A judgement call gets an LLM judge built from the signal** (`ctx.judge`). Use the signal's `prompt` as the rubric,
+- **A judgement call gets an LLM judge built from the signal** (a function you write and call from
+  `verify()`, see `env-evals.md`, "The verifier"). Use the signal's `prompt` as the rubric,
   narrowed to this failure mode with the cluster name and a few event payloads, and grade the run's output
   and trajectory. The signal already says what the project calls a failure; don't invent another definition.
 - **Also check the task got done.** "The failure is absent" alone passes an agent that refused or did

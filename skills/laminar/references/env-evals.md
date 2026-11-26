@@ -186,7 +186,7 @@ Work through these in order; each step links to the section with the details.
    prompt/config and differ only in input, and flip the reference answer once to confirm the reward goes
    to 0. A harness that can't fail is broken.
 9. **Check the trajectory** in the trial's trace: LLM and tool calls should be visible ("Capturing the
-   agent's trajectory"), and `verify()`'s commands and judge calls appear under the verifier span.
+   agent's trajectory"), and `verify()`'s commands and LLM calls appear under the verifier span.
 10. **Push the tasks**: `lmnr-cli eval dataset push`, then commit `tasks/dataset.toml` (the rest of
     `tasks/` is git-ignored) with the rest of `evals/` ("Eval datasets"). Tell the user the case data is now stored in
     their Laminar project.
@@ -289,9 +289,7 @@ class SupportEval(EvalRunner):
         if result.get("outcome") != "completed":
             return {"refund": 0, "reply": 0}
         rows = json.loads((await ctx.sh("python -m app.cli dump-refunds --json")).stdout)
-        reply_ok = await ctx.judge(result["reply"], expected["reply_should"],
-                                   model="anthropic/claude-haiku-4-5",
-                                   api_key=ctx.secrets["ANTHROPIC_API_KEY"])
+        reply_ok = await judge(result["reply"], expected["reply_should"])   # your own function
         return {"refund": len(rows) == expected["refund_count"], "reply": reply_ok}
 ```
 
@@ -541,7 +539,8 @@ Each trial runs four phases, each given a `ctx` for that trial:
 - **`run(ctx)`**: drive the entry point and record the outcome with `ctx.result(...)`. For a single
   command, set `entrypoint = "..."` instead of defining it.
 - **`collect(ctx)`** *(optional)*: runs after `run()`, also when it raised or timed out (with two minutes
-  of its own after a timeout). Export what the run left behind: a reconstructed trajectory, extra logs.
+  of its own after a timeout). Export what the run left behind: a reconstructed trajectory, extra logs,
+  state for grading (`ctx.save_artifact`, see "The verifier").
 - **`verify(ctx)`**: grade (see "The verifier").
 
 What `ctx` offers:
@@ -592,19 +591,44 @@ and compare against `ctx.case.expected()`. One method grades every case. Where i
 
 - **`"shared"`** (the default): the agent's container, after the agent finishes, with everything the run
   left behind (services keep running).
-- **`"separate"`**: a fresh container, which sees only what the task declares. List
-  files in top-level `artifacts = [...]` in `task.toml`, and use `[[verifier.collect]]` commands to snapshot
-  runtime state (database contents, in-memory counters) into files before the environment is torn down.
-  `ctx.result()` still works. Prefer this when grading must not see the app's internals.
+- **`"separate"`**: a fresh container from the same image, which sees only the run's artifacts.
+  `ctx.result()` still works. Prefer this when grading must not see the app's internals. It's rare: most
+  datasets grade in the shared container.
 
-`ctx.judge(output, criteria, model=None, api_key=None)` asks an LLM whether `output` meets `criteria`
-(plain-language rubric) and returns `1` or `0`, logging its reason. Models are LiteLLM names
-(`"anthropic/claude-haiku-4-5"`); without `model` it uses the runner's `model`, not the trial's, so a model
-sweep doesn't change the judge. Pass the key from `ctx.secrets`. Combine hard checks on the terminal state
-(rows, status, the response) with a judge only for what can't be checked exactly (the quality of a reply).
+**Artifacts** are the files collected for grading after the agent phase (both modes). Declare them on the
+runner, or save them from `collect`:
 
-In Laminar, `verify()` is traced under the trial's verifier span, with its judge calls as LLM spans, and
-its log (`ctx.logger` lines, the judge's reasons) is the trial's `verifier/test-stdout.txt`.
+```python
+from lmnr.evals import Artifact
+
+class SupportEval(EvalRunner):
+    artifacts = ["/srv/app/out/", Artifact("/var/lib/app/state.db", destination="app.db")]
+
+    async def collect(self, ctx):
+        await ctx.sh("python -m app.cli dump-state > /tmp/state.json", check=False)
+        await ctx.save_artifact("/tmp/state.json")   # -> /logs/artifacts/state.json
+```
+
+- `ctx.save_artifact(path, dest=None)` copies a container file or folder to `/logs/artifacts/<dest>`
+  (default: its name), replacing whatever the agent under test may have put there. Snapshot runtime state
+  (database contents, in-memory counters) this way before the container goes away.
+- In `verify()`, `ctx.artifacts.read_text(path)` / `read_json(path)` / `path(path)` read them on the host
+  by the container path they came from (`"/srv/app/out/report.json"`, `"/logs/artifacts/state.json"`),
+  in both modes; `ctx.artifacts.list()` lists what was collected.
+- In `"separate"` mode the grading container gets them too: declared ones at their original path, saved
+  ones under `/logs/artifacts/`, so a script run with `ctx.run_file` can read them there.
+- Declare them on the runner, not in `harbor.yaml` (`lmnr-cli` rejects that); a task's own
+  `artifacts = [...]` in `task.toml` adds to them.
+
+**LLM judges are your own code.** `verify()` runs in the Harbor process, so a judge is a plain function
+that calls any SDK listed in `eval.py`'s PEP 723 block, with its key from `ctx.secrets` and its inputs from
+`ctx.result()`, `ctx.case.expected()` and artifacts. Decorate it with `@observe(name="judge",
+ignore_inputs=["api_key"])` to get its own span without recording the key. Combine hard checks on the
+terminal state (rows, status, the response) with a judge only for what can't be checked exactly (the
+quality of a reply). lmnr-python's `examples/agent-evals` has one.
+
+In Laminar, `verify()` is traced under the trial's verifier span, with LLM calls it makes as LLM spans,
+and its log (`ctx.logger` lines) is the trial's `verifier/test-stdout.txt`.
 
 To grade with each task's own `tests/test.sh` instead (an imported Harbor dataset), set `verify = "task"`:
 the script writes its reward to `/logs/verifier/reward.txt`, and `lmnr-cli` leaves the verifier to Harbor.
