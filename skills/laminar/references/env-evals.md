@@ -514,8 +514,10 @@ What `ctx` offers:
   `cmd("pg_isready")` (from `lmnr.evals`), or a plain string command. If the process exits or isn't ready
   in time, the error carries the end of its log. `ctx.wait_for(ready, timeout=60)` waits without starting
   anything (an async job's terminal status, say).
-- `ctx.upload(local, remote)`, `ctx.write_file(path, content)`, `ctx.read_text(path)`, `ctx.read_json(path)`
-  move files between the host and the container.
+- `ctx.copy(host, container)` copies a file or directory from the host (the machine running Harbor: yours
+  locally, Laminar's orchestrator on `--remote`; relative paths are from `eval.py`'s directory) into the
+  container. `ctx.write_file(path, content)`, `ctx.read_text(path)` and `ctx.read_json(path)` write and
+  read files in the container.
 - `ctx.result(**fields)` records fields in the trial's `agent/result.json` (merged with earlier calls);
   `ctx.result()` reads them back, in `verify()` too, in both verifier modes. The fields show as the trial's
   output in Laminar when there is no trajectory.
