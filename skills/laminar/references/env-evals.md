@@ -227,6 +227,7 @@ project. Code several datasets share (a whole runner) goes in `evals/_shared/` (
 evals/
   README.md                       # how to run, how to add a case
   .gitignore                      # */tasks/* and !*/tasks/dataset.toml  (lmnr-cli adds them)
+  pyproject.toml                  # (optional) packages eval.py imports: [project] dependencies
   _shared/                        # (optional) Python several datasets' eval.py import ("Shared runners")
   <folder>/                       # e.g. support
     harbor.yaml                   # (optional) Harbor JobConfig settings: concurrency, timeouts, a model sweep
@@ -295,8 +296,11 @@ class SupportEval(EvalRunner):
 
 - **One `EvalRunner` subclass per file.** `eval.py` runs in the Harbor process (your machine, or Laminar's
   orchestrator for `--remote`), not in the container: commands reach the container through `ctx`. Import
-  the standard library, `lmnr`, and Python packages declared in a PEP 723 block at the top of the file
-  (`# /// script` / `# dependencies = ["httpx"]` / `# ///`); everything the app needs belongs in the image.
+  the standard library, `lmnr`, and packages listed in `evals/pyproject.toml` (`[project] dependencies`;
+  lmnr-cli installs them next to Harbor, Python 3.13; dependency groups and `requires-python` are
+  ignored). A PEP 723 block at the top of one `eval.py` (`# /// script` / `# dependencies = ["httpx"]` /
+  `# ///`) adds packages for that dataset only. Everything the app or a script run in the container
+  needs belongs in the image.
   The file is imported more than once (to read its configuration, then by Harbor), so keep module-level
   code to constants and definitions.
 - **`image`**: `Image.from_dockerfile(path, context=...)` (relative to the file that calls it, here
@@ -504,8 +508,8 @@ class RefundsEval(SupportRunner):
   subclass's own `ctx.run_file("x.py")` finds `x.py` next to its `eval.py`.
 - **The image comes only from the runner class chain.** Tasks pick one of the runner's named images and
   nothing else ("Use one prebuilt image"); what differs per case is data the shared code reads.
-- Shared modules import the standard library, `lmnr` and packages from the PEP 723 block of every
-  `eval.py` that uses them, never `harbor`.
+- Shared modules import the standard library, `lmnr` and packages from `evals/pyproject.toml`, never
+  `harbor`.
 - A remote run's trial **Files** view shows the shared modules the runner imported in `runner/`, next to
   `agent/`.
 
@@ -621,7 +625,7 @@ class SupportEval(EvalRunner):
   `artifacts = [...]` in `task.toml` adds to them.
 
 **LLM judges are your own code.** `verify()` runs in the Harbor process, so a judge is a plain function
-that calls any SDK listed in `eval.py`'s PEP 723 block, with its key from `ctx.secrets` and its inputs from
+that calls any SDK listed in `evals/pyproject.toml`, with its key from `ctx.secrets` and its inputs from
 `ctx.result()`, `ctx.case.expected()` and artifacts. Decorate it with `@observe(name="judge",
 ignore_inputs=["api_key"])` to get its own span without recording the key. Combine hard checks on the
 terminal state (rows, status, the response) with a judge only for what can't be checked exactly (the
