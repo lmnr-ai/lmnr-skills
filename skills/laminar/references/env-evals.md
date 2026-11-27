@@ -862,7 +862,8 @@ class SupportEval(EvalRunner):
   is for processes no `Service` covers, typically the app itself.
 - **Versions are required:** pin the version production (or the project's compose file) runs. `"latest"`
   works but warns on every run.
-- **Env:** `env="DATABASE_URL"` names the variable; a dict sets several from templates:
+- **Env:** a dict of variables to templates, by default `{"DATABASE_URL": "{url}"}` (`CLICKHOUSE_URL`,
+  `REDIS_URL`); name them the way the app's config does:
   `env={"PGHOST": "{host}", "PGPORT": "{port}", "APP_DB": "{url}"}` (`{url}`, `{host}`, `{port}`,
   `{database}`, `{user}`, `{password}`). The app must read its connection from env; a service's variable
   may not also be in the runner's `env`. In a separate verifier, service env isn't set.
