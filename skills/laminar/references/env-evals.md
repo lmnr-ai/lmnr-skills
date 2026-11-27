@@ -455,7 +455,9 @@ image = (
   `Image.debian_slim()`, `Image.from_registry(ref)`. Match the language version production runs.
 - **Dependencies:** `uv_sync(pyproject)` (`pyproject.toml` and `uv.lock` mounted for the build, `uv sync
   --frozen` into the image's Python), `pip_install_from_requirements(path)`, `npm_ci(dir, dst)`
-  (`package.json` and the lockfile, then `npm ci`), `pip_install(...)`, `uv_pip_install(...)`,
+  (`package.json` and the lockfile, then `npm ci`), `pnpm_install(dir, dst)` (`package.json`,
+  `pnpm-lock.yaml` and `pnpm-workspace.yaml`, then a frozen install with the pnpm version in
+  `packageManager`; `.npmrc` is only mounted), `pip_install(...)`, `uv_pip_install(...)`,
   `apt_install(...)`. Install from the project's lockfile so the image has the versions production has.
   Databases and caches don't go here: declare them in `services`.
 - **Files and settings:** `add_dir(src, dst)`, `add_file(src, dst)`, `run_commands(...)`, `env(...)`,
@@ -854,9 +856,12 @@ class SupportEval(EvalRunner):
 - **Schemas:** if the app has migrations, reproduce what its own startup/migration does, in the same
   order: extra roles, extra databases, numbered migrations, then anything created *after* migrations in
   code (dictionaries, views, grants, seed rows). Reading the app's boot hook is the only reliable way to
-  find these. `Postgres(migrations=dir)` / `ClickHouse(migrations=dir)` apply the directory's `*.sql`
-  files in natural sort order (subfolders skipped) from the live tree; `Postgres(migrate="alembic upgrade
-  head")` runs the app's own migration command instead (in the container, with the service env), and
+  find these. `Postgres(migrations=dir)` applies the directory's `*.sql` files in natural sort order
+  (subfolders skipped) from the live tree. `ClickHouse(migrations=dir)` applies them with the
+  `clickhouse-migrations` CLI (files named `1_init.sql`, versions recorded in `_migrations`); for files
+  the app applies some other way, `migrator="clickhouse-client"` runs every `*.sql` in natural order.
+  `Postgres(migrate="alembic upgrade head")` runs the app's own migration command instead (in the
+  container, with the service env), and
   `init_sql=[...]` / `extensions=[...]` run before migrations. With plain SQL migrations,
   `migrate_at="build"` runs them while the image is built, so trials start from a migrated database.
   What must happen after migrations goes in `setup()`.
@@ -865,6 +870,9 @@ class SupportEval(EvalRunner):
   entry point runs. Create **only the tables and columns the path under test needs**, in a SQL directory
   next to `eval.py` passed as `migrations=`. Tell the user the schema was inferred, since it can drift
   from the real one.
+- **Server config:** `ClickHouse(config="clickhouse/config.xml", users="clickhouse/users.xml")` merges
+  production's server and user settings over the defaults (keep the ports in step with `http_port` /
+  `tcp_port`, and the `default` user without a password).
 - **Base image:** the services need glibc 2.36 or newer (Debian bookworm / trixie, Ubuntu 24.04; the
   builder's bases are trixie). On an older base, pass `source=` an official image built on an older
   distribution (`Postgres("16", source="postgres:16-bullseye")`); Alpine can't take them. `source=` also
