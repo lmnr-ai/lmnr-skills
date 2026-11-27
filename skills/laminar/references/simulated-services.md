@@ -23,10 +23,10 @@ release never changes a running eval.
 Don't use one when the app reaches the service through the vendor's hosted MCP server (`mcp.linear.app`
 and the like: it can't be pointed at a simulator), or when the case depends on a call the simulator
 doesn't serve. Check the trace's methods against `GET <url>/_rystic/routes` (`rystic run <product>` on your
-machine, or `await self.mirror(name).get(ctx, "/_rystic/routes")` in a trial); unserved ones answer an
+machine, or `await self.service(Rystic).get(ctx, "/_rystic/routes")` in a trial); unserved ones answer an
 error (Slack: `501`). Report either gap instead of building the case. The exception is Linear's MCP
 server: start [portomatic](https://www.npmjs.com/package/portomatic) instead, from `setup()` with
-`ctx.container.service("linear", "npx -y portomatic start --only linear", ready=...)` (Node 24+ in the
+`ctx.container.spawn("linear", "npx -y portomatic start --only linear", ready=...)` (Node 24+ in the
 image; `npx` downloads it when the trial starts; `npx portomatic linear help` lists its endpoints,
 credentials and seeding), and point the app's MCP URL at it.
 
@@ -41,13 +41,12 @@ lmnr-cli installs the pinned Rystic CLI into the image (no key needed), and each
 simulator.
 
 - **`lmnr-cli eval run --remote`:** when the Laminar deployment provides Rystic, each trial sandbox
-  already has its own short-lived access (`RYSTIC_TOKEN` and the proxy URLs). Don't pass `RYSTIC_TOKEN`
-  with `--env`, in `env` or in `harbor.yaml`: it would replace the trial's.
-- **Local runs:** pass the user's own key, `lmnr-cli eval run --env RYSTIC_TOKEN` (read from the shell,
-  `.env.local` or `.env`; keys at https://www.rystic.ai/account/api-keys, and the Slack, Linear and GitHub
-  simulators are on the free plan). Never write it into the image, `eval.py` or a task.
-
-Without a token the mirror's start fails, saying how to pass one. An app started with `env -i` doesn't
+  already has its own short-lived access (`RYSTIC_TOKEN` and the proxy URLs). Don't put `RYSTIC_TOKEN`
+  in `env` or `harbor.yaml`: it would replace the trial's (lmnr-cli drops a `--env RYSTIC_TOKEN`).
+- **Local runs:** the user's own key, which `lmnr-cli eval run` reads as `RYSTIC_TOKEN` from the shell,
+  `.env.local` or `.env` and passes to the trials (keys at https://www.rystic.ai/account/api-keys; the
+  Slack, Linear and GitHub simulators are on the free plan). Without one the run fails before building
+  anything (exit `19`). Never write it into the image, `eval.py` or a task. An app started with `env -i` doesn't
 need `RYSTIC_*`: only the runner's `rystic` commands use them.
 
 ## Seed from the case
@@ -65,7 +64,8 @@ simulator starts; the agent never sees it as a file.
   the caller per request; see its `auth` section.
 - **Rebase the case's timestamps** to now (env-evals.md, "Seed data the agent can't tell is a test"), and
   set `clock=` (RFC 3339) to the same now, so records the app creates fall after the seeded ones.
-- One `Rystic(...)` per product; give two of the same product their own `name=`.
+- One `Rystic(...)` per product; give two of the same product their own `name=` and pick one with
+  `self.service("<name>")`.
 
 lmnr-python's `examples/agent-evals` (`billing` dataset) seeds a Slack workspace with one customer
 message: `tests/fixtures/slack.json` in each case.
@@ -79,7 +79,7 @@ hard-coded, that is a gap to raise with the user: the mirror doesn't run Rystic'
 
 ## Grade
 
-- For a Slack bot driven by an event, `await self.mirror("slack").settle(ctx, quiet_ms=...)` in `run()`
+- For a Slack bot driven by an event, `await self.service(Rystic).settle(ctx, quiet_ms=...)` in `run()`
   returns once its turn is over; set `quiet_ms` above the longest pause in a turn (a model call).
 - In `verify()`, `calls(ctx)` is every API call the app made (`path`, `args`, `ok`, `writes`, ...) and
   `state(ctx)` the final state. With a separate verifier, set `snapshot=True` so `collect` saves both.
