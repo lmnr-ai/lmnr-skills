@@ -6,7 +6,15 @@ A single, unified skill for [Laminar](https://laminar.sh/docs): instrument code 
 
 The `laminar` plugin bundles this skill with the hosted [Laminar MCP server](https://laminar.sh/docs/platform/mcp) (`https://api.lmnr.ai/v1/mcp`), so your agent can query traces with SQL and manage signals. On first use it opens a browser to sign in to Laminar; there is no API key to paste.
 
+**Claude Code**
+
+```bash
+/plugin install laminar --marketplace lmnr-ai/lmnr-skills
+```
+
 **Cursor**: add `lmnr-ai/lmnr-skills` from **Cursor Settings → Plugins**.
+
+This plugin is separate from the [`lmnr` Claude Code tracing plugin](https://github.com/lmnr-ai/lmnr-claude-code-plugin), which sends your Claude Code sessions to Laminar as traces.
 
 ## Install the skill only
 
