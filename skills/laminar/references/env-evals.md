@@ -284,6 +284,10 @@ holds only its data (the reference answer).
   so a new case is a directory copy plus data and never needs harness changes.
 - Keep reference answers in `tests/`, not in `environment/`: Harbor uploads `tests/` only when the
   verifier runs, so neither the agent nor the app can read them.
+- `instruction.md` is either the input the driver sends to the entry point (the user message, the
+  prompt), verbatim, or, when the input lives in `case.json`, a short scenario for people reading the
+  task: what the case tests, its setup and input, and the expected outcome. Never leave it empty or
+  boilerplate; teammates read it in Laminar's task view.
 
 ## Eval datasets: tasks in Laminar, versions in git
 
@@ -585,7 +589,10 @@ Single container, no docker-in-docker: boot the real dependencies in it.
 
 ## LLM handling
 - **The LLM is real.** Evals exist to measure how the product behaves with a model; a canned response only
-  tests the harness. Never substitute a fake or recorded model for the one under test.
+  tests the harness. Never substitute a fake or recorded model for the one under test unless the user
+  explicitly asks for it (e.g. to run the harness without model calls). Then serve the canned responses
+  at the network edge (a stub server on the app's model base URL, not a patched client), and say in the
+  report and the dataset's README that the scores don't measure the model.
 - Route the app's model calls through its normal configuration (profile row, base URL env), pointing at the
   endpoint and key from the agent's `${VAR}` env. Don't patch the client.
 - A failing or unreachable LLM endpoint often makes the app **retry rather than fail**. Your timeout is
@@ -666,6 +673,7 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
       and reads `self.model_name`; logs for every service land in `/logs/agent/`
 - [ ] `tests/test.sh` runs `agent/verify.py`, which writes `/logs/verifier/reward.txt`; reference answers
       only in `tests/`
+- [ ] Every `instruction.md` is the driver's input or describes the case's scenario
 - [ ] Every secret is a `${VAR}` placeholder; `.env.example` lists them; `.env` and `evals/*/jobs/` are
       gitignored; `evals/README.md` says how to run and how to add a case
 - [ ] `lmnr-cli eval run` passes locally from the repo root; each run shows up as a new evaluation in the
@@ -674,5 +682,5 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
 - [ ] A positive and a negative case behave as expected; a flipped reference answer scores 0
 - [ ] Trials show the agent's LLM and tool calls: the app is instrumented with Laminar and receives
       `LMNR_TRAJECTORY_PATH`, or a reconstructed `trajectory.json` is written (and the user knows what it lacks)
-- [ ] Runs against the real model
+- [ ] Runs against the real model (or a stub the user asked for, reported)
 - [ ] Single container per task, so `lmnr-cli eval run --remote` works without changes
