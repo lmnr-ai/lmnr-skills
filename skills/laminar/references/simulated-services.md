@@ -23,7 +23,7 @@ release never changes a running eval.
 Don't use one when the app reaches the service through the vendor's hosted MCP server (`mcp.linear.app`
 and the like: it can't be pointed at a simulator), or when the case depends on a call the simulator
 doesn't serve. Check the trace's methods against `GET <url>/_rystic/routes` (`rystic run <product>` on your
-machine, or `await self.mirror(name).get(ctx, "/_rystic/routes")` in a trial); unserved ones answer an
+machine, or `await self.service(Rystic).get(ctx, "/_rystic/routes")` in a trial); unserved ones answer an
 error (Slack: `501`). Report either gap instead of building the case. The exception is Linear's MCP
 server: start [portomatic](https://www.npmjs.com/package/portomatic) instead, from `setup()` with
 `ctx.container.spawn("linear", "npx -y portomatic start --only linear", ready=...)` (Node 24+ in the
@@ -64,7 +64,8 @@ simulator starts; the agent never sees it as a file.
   the caller per request; see its `auth` section.
 - **Rebase the case's timestamps** to now (env-evals.md, "Seed data the agent can't tell is a test"), and
   set `clock=` (RFC 3339) to the same now, so records the app creates fall after the seeded ones.
-- One `Rystic(...)` per product; give two of the same product their own `name=`.
+- One `Rystic(...)` per product; give two of the same product their own `name=` and pick one with
+  `self.service("<name>")`.
 
 lmnr-python's `examples/agent-evals` (`billing` dataset) seeds a Slack workspace with one customer
 message: `tests/fixtures/slack.json` in each case.
@@ -78,7 +79,7 @@ hard-coded, that is a gap to raise with the user: the mirror doesn't run Rystic'
 
 ## Grade
 
-- For a Slack bot driven by an event, `await self.mirror("slack").settle(ctx, quiet_ms=...)` in `run()`
+- For a Slack bot driven by an event, `await self.service(Rystic).settle(ctx, quiet_ms=...)` in `run()`
   returns once its turn is over; set `quiet_ms` above the longest pause in a turn (a model call).
 - In `verify()`, `calls(ctx)` is every API call the app made (`path`, `args`, `ok`, `writes`, ...) and
   `state(ctx)` the final state. With a separate verifier, set `snapshot=True` so `collect` saves both.

@@ -309,7 +309,7 @@ class SupportEval(EvalRunner):
         if result.get("outcome") != "completed":
             return {"refund": 0, "reply": 0}
         # Host Python; only the query runs in the container (the agent's, by default).
-        rows = await self.service(Postgres).sql(ctx, "SELECT * FROM refunds")
+        rows = await self.service(Postgres).query(ctx, "SELECT * FROM refunds")
         reply_ok = await judge(result["reply"], expected["reply_should"])   # your own function
         return {"refund": len(rows) == expected["refund_count"], "reply": reply_ok}
 ```
@@ -667,7 +667,7 @@ through it; plain Python in your methods (a judge call, reading `ctx.case.expect
   `fixture_text(path)` / `fixture_json(path)` / `fixture_bytes(path)` and `fixture_path(path)` (under
   `tests/fixtures/`; mock handlers get the same readers, without the path).
 - `ctx.model`, `ctx.env` (the resolved `env` plus the services' and mocks' variables), `ctx.logger` (its lines also go to the verifier's log).
-- `self.service(Postgres)` / `self.service("name")` and `self.mirror("slack")`: a declared service, for its
+- `self.service(Postgres)` / `self.service(Rystic)` / `self.service("name")`: a declared service, for its
   helpers ("Services", "Mirrors"); `ctx.state("postgres", "refunds")` (verify) reads a table a service
   saved with `snapshot=[...]`, and `ctx.state("slack", "calls")` / `("slack", "state")` a mirror's with
   `snapshot=True`.
@@ -856,9 +856,9 @@ class SupportEval(EvalRunner):
   `REDIS_URL`) to every later command, the app's included. A service that fails to start or migrate fails
   the trial with the end of its log.
 - **`setup()` only seeds and starts the app**: `ctx.container.run_file("seed.py")` (it reads the same
-  env), or the helpers: `self.service(Postgres).insert(ctx, "users", rows)`, `.sql(ctx, query) -> rows`,
-  `.execute(ctx, sql)`, `.load_sql(ctx, "baseline.sql")`; `self.service(ClickHouse).insert(ctx, table,
-  rows)` / `.query(ctx, sql)`; `self.service(Valkey).cmd(ctx, "SET", "k", "v")`. `ctx.container.spawn`
+  env), or the helpers: `self.service(Postgres).insert(ctx, "users", rows)`, `.query(ctx, sql) -> rows`,
+  `.execute(ctx, sql)`; `self.service(ClickHouse).insert(ctx, table, rows)` / `.query(ctx, sql)` /
+  `.execute(ctx, sql)`; `self.service(Valkey).cmd(ctx, "SET", "k", "v")`. `ctx.container.spawn`
   is for processes no `Service` covers, typically the app itself.
 - **Versions are required:** pin the version production (or the project's compose file) runs. `"latest"`
   works but warns on every run.
@@ -928,7 +928,7 @@ class SupportEval(EvalRunner):
     ]
 
     async def verify(self, ctx):
-        slack = self.mirror("slack")
+        slack = self.service(Rystic)
         state = await slack.state(ctx)        # the simulator's state after the run
         calls = await slack.calls(ctx)        # every API call the app made
         ...
