@@ -980,7 +980,8 @@ class SupportEval(EvalRunner):
 - **The model stays real.** The app's LLM calls go to the real model ("LLM handling"), not to a
   mock. If the user explicitly asks to run without model calls, the stub that section describes is an
   HTTP mock on the model's base URL (`mock.http(..., base_url_env=<the app's model base URL variable>)`),
-  reported as such; never a function mock of the code that calls the model.
+  never a function mock of the code that calls the model. Say in the report and the dataset's README
+  that the scores don't measure the model.
 - **HTTP mocks** are the default. The key is the API's base URL (a host, optionally with a path); the
   runner sets `base_url_env` to the mock's URL, so point the app's existing base-URL setting at it,
   exactly as for a mirror. If the app hard-codes the vendor's URL, raise it with the user; don't patch
