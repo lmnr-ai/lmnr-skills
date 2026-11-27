@@ -82,7 +82,7 @@ Then map the trace onto the case:
 
 | From the trace | Goes into |
 |---|---|
-| The agent's input (`agent_input`: the user message, the job payload) | `instruction.md` / `environment/case.json`: what the driver sends to the entry point |
+| The agent's input (`agent_input`: the user message, the job payload) | `instruction.md` / `environment/case.json`: what the driver sends to the entry point (when it's in `case.json`, `instruction.md` describes the scenario; see "Directory structure" in env-evals.md) |
 | What the agent read: tool results, retrieved documents, rows it queried | seeded state in `case.json`: database rows, files, a Slack / Linear / GitHub simulator's seed ([simulated-services.md](simulated-services.md)), or recorded responses at another third-party edge (a mock, reported as env-evals.md requires) |
 | Earlier turns of a multi-turn conversation | seeded history; drive only the turn that failed (`is_copied_context` in a reconstructed trajectory) |
 | The event's `payload` and the signal's `prompt` | the verifier (next section) |

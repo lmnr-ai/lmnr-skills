@@ -19,7 +19,10 @@ which services the cases simulate and which calls the simulator doesn't cover.
 Don't use one when the app reaches the service through the vendor's hosted MCP server (`mcp.linear.app`
 and the like: it can't be pointed at a simulator), or when the case depends on a call the simulator doesn't
 serve. Check the trace's methods against `GET $URL/_rystic/routes`; unserved ones answer an error (Slack:
-`501`). Report either gap instead of building the case.
+`501`). Report either gap instead of building the case. The exception is Linear's MCP server: start
+[portomatic](https://www.npmjs.com/package/portomatic) in `seed.py` instead (`npx portomatic start --only
+linear`, Node 24+; it serves Linear's GraphQL API and MCP, and `npx portomatic linear help` lists the endpoints,
+credentials and seeding) and point the app's MCP URL at it.
 
 Rystic documents each simulator in detail: `rystic docs <product>` lists the sections (`coverage`,
 `seeding-state`, `auth`, ...) and `rystic docs <product> <section>` prints one. Read `seeding-state` for the
