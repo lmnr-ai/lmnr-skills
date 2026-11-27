@@ -878,7 +878,8 @@ class SupportEval(EvalRunner):
   builder's bases are trixie). On an older base, pass `source=` an official image built on an older
   distribution (`Postgres("16", source="postgres:16-bullseye")`); Alpine can't take them. `source=` also
   picks a compatible image with extras: `Postgres("16", source="pgvector/pgvector:pg16-bookworm",
-  extensions=["vector"])`.
+  extensions=["vector"])`. ClickHouse's default migrator needs glibc 2.38 (trixie, Ubuntu 24.04): on a
+  bookworm base, pass `migrator="clickhouse-client"` (the build fails with that hint otherwise).
 - **Anything else** (MySQL, MinIO, an internal service): `Service.custom(name, version, start=...,
   ready=..., source=..., bundle=[paths], env=..., port=...)` copies `bundle` paths (and the shared
   libraries they need) from the `source` image; or `install=[Dockerfile lines]` installs it in the final
