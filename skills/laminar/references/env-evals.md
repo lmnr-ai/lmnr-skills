@@ -990,12 +990,32 @@ class SupportEval(EvalRunner):
   `mock.Response(status, json=... | text=... | body=..., headers=...)`, or `None` / raises
   `mock.Unmatched` for a request it doesn't handle (`501`). `raise mock.Error(type, message)` answers
   `500` with that error.
-- **Function mocks** replace an observed function by its span name (`@observe(name="crm.get_customer")`,
-  else the function's name). A handler gets `call` (`key`, `args` (by parameter name in Python, a list in
-  TypeScript), `index`) and returns the value the function returns, raises `mock.Error(type, message)`
-  for the function to raise, or returns `mock.PASSTHROUGH` to run the real function. They need the
-  app's Laminar SDK to support mocks; with an SDK that doesn't, the real function runs. Until then, only
-  HTTP mocks reach an unmodified app.
+- **Function mocks** replace an observed function in the app: when the app calls it, its Laminar SDK
+  asks the mock server first and returns or raises what the handler says, without running it. Use one
+  when the dependency has no base-URL setting to point at a mock (an SDK client, gRPC, a function that
+  does several calls) but sits behind a function the app already observes.
+  - *Key*: `observe(mock_key=...)` (TS `mockKey`), else the span name (`@observe(name="crm.get_customer")`),
+    else the function's name. `observe(mockable=False)` (TS `mockable: false`) makes a function always
+    run.
+  - *Handler*: gets `call` (`key`, `args`, `index`) and returns the function's return value, raises
+    `mock.Error(type, message)` for the function to raise, or returns `mock.PASSTHROUGH` to run the real
+    function. `args` are by parameter name in Python (`self` / `cls` dropped, defaults filled in) and the
+    argument list in TypeScript, serialized like span input.
+  - *In the app*, `mock.Error` raises `lmnr.MockedError` (`.type`, `.message`) in Python and a
+    `MockedError` from `@lmnr-ai/lmnr` whose `name` is the type in TypeScript. Python validates a returned
+    value against the function's return annotation (pydantic models, dataclasses and TypedDicts are built
+    from the JSON); a mismatch fails the call.
+  - *Requirements*: the app needs `lmnr` 0.9.3 or later (Python) / `@lmnr-ai/lmnr` 0.9.8 or later
+    (TypeScript); with an older SDK the real function runs, silently. Check the app's lockfile. Upgrading
+    the SDK, or adding `@observe` to a function that doesn't have it, is a change to the product: propose
+    it to the user, don't make it as part of the eval.
+  - *TypeScript*: a mocked function must be declared `async`. A plain function, even one that returns a
+    Promise, throws `MockedError` (`MockFailure`) when its key is mocked. Generators can't be mocked in
+    either SDK.
+  - *Failures fail the call, never fall back*: an unreachable mock server makes every observed call in the
+    app raise `MockedError` (type `MockFailure`), and so does a handler that crashes (its traceback is in
+    `agent/mocks.log`). The trace marks answered calls with `lmnr.span.mocked`, and the call log has each
+    call's `trace_id` / `span_id`.
 - Every handler also gets `ctx`: `ctx.state` (one dict per trial, shared by all handlers),
   `ctx.calls` (this key's earlier calls), `ctx.fixture(path)` / `fixture_text` / `fixture_json` (the
   case's `tests/fixtures/`), `ctx.case.name` / `ctx.case.metadata`, `ctx.env`. Calls are handled one at a
@@ -1185,8 +1205,9 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
 - [ ] The image goes from rarely to often changing layers (lockfile installs, then code) and adds
       specific paths from the live tree, nothing from `evals/`; never `COPY . .`
 - [ ] Real services seeded for as much of the stack as possible, then mirrors; any mock is a last resort
-      (HTTP mocks through the app's base-URL setting, data in `tests/fixtures/`, graded with
-      `ctx.mocks.calls`) and reported to the user; schemas created as the app's own boot does (or
+      (HTTP mocks through the app's base-URL setting, or function mocks of observed functions with a
+      recent enough Laminar SDK in the app, `async` in TypeScript; data in `tests/fixtures/`, graded
+      with `ctx.mocks.calls`) and reported to the user; schemas created as the app's own boot does (or
       inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] Databases and caches are declared `services` at production's versions, with the app's own
