@@ -919,12 +919,13 @@ class SupportEval(EvalRunner):
         ...
 ```
 
+- **Remote runs only, for now** (`lmnr-cli eval run --remote`). Laminar gives every trial sandbox its own
+  short-lived Rystic access (`RYSTIC_TOKEN` and the proxy URLs). Never put `RYSTIC_TOKEN` in `env`,
+  `secrets` or `harbor.yaml`: it would replace the trial's. A local run fails at the mirror's start with
+  that reason; tell the user to run the dataset with `--remote`.
 - `version` pins the simulator. The image gets the pinned Rystic CLI (no key needed); each trial
-  downloads the simulator before it starts, which needs `RYSTIC_TOKEN` in the container. On `--remote`,
-  Laminar gives every trial sandbox its own short-lived token: don't put `RYSTIC_TOKEN` in `env`,
-  `secrets` or `harbor.yaml`, which would replace it. Locally pass your key for the run:
-  `lmnr-cli eval run --env RYSTIC_TOKEN` (read from the shell or `.env`).
-- `seed=case_fixture("slack.json")` loads each case's `tests/fixtures/slack.json` (a Rystic scenario) after
+  downloads the simulator before it starts.
+- `seed=case_fixture("slack.json")` loads each case's `tests/fixtures/slack.json` (a register map) after
   start; a case without the file starts empty (`case_fixture(..., required=True)` makes it an error). A
   plain path is the same seed for every case. The seed never stays on disk in the container.
 - `env` templates use `{url}` (`http://127.0.0.1:<port>`) and `{port}`: point the app's existing
