@@ -90,7 +90,11 @@ on disk (see "Eval datasets").
   load) or archive too large, `17` `uv`/`docker`
   missing, `18` a dataset's `harbor run` failed (the other datasets still run), `19` an unset `${VAR}`, `20`
   a Docker build/save/pull failed or an image has the wrong platform, `21` a `--remote` run failed before
-  its datasets ran or its sandbox was lost; `22` comes from `eval dataset pull` ("Eval datasets").
+  its datasets ran or its sandbox was lost, `23` every trial of a dataset errored without being graded
+  (the other datasets still run; the message names the first error; a run where only some trials
+  errored exits 0 and logs `N/M trials errored`), `24` a local run's Laminar key was rejected or
+  Laminar was unreachable (checked before anything is built); `22` comes from `eval dataset pull`
+  ("Eval datasets"). Local `--json` adds `trials: {<dataset>: {total, errored, firstError?}}`.
 
 **Remote limits and image requirements:**
 - One container per trial (no docker-compose tasks); `cpus`/`memory_mb` above the sandbox cap are clamped;
@@ -156,15 +160,15 @@ Work through these in order; each step links to the section with the details.
    this path, copy their seeding shape: it is the best statement of which fields are actually required.
 2. **Lay out `evals/`**: `<dataset>/agent/eval.py`, `<dataset>/tasks/dataset.toml` with its
    `[dataset] name`, and one case under `<dataset>/tasks/` with `environment/case.json` and its reference
-   answer in `tests/expected.json`. `lmnr-cli eval task new evals/<dataset>/tasks/<case>` (from the repo
-   root; it loads `eval.py`, so run it once `eval.py` has an `image`, `run()` and `verify()`) writes the
+   answer in `tests/expected.json`. `lmnr-cli eval task new <dataset> <case>` (`--dir` when the
+   evals folder isn't `./evals`; it loads `eval.py`, so run it once `eval.py` has an `image`, `run()` and `verify()`) writes the
    rest ("Directory structure", "Use one prebuilt image"). If the project already has eval datasets in Laminar,
    run `lmnr-cli eval dataset pull` first.
 3. **Declare the image and the services** in `eval.py`: an `Image` with the app's dependencies and live
    source ("Building the image"), and `services = [Postgres("16", migrations=...), ...]` pinned to what
    production/compose uses. The runner installs them into the image, and in every trial starts,
    migrates and seeds them before `setup()`; `setup()` starts the app itself with
-   `ctx.container.service` ("Services").
+   `ctx.container.spawn` ("Services").
 4. **Seed through the real interface where it is cheap, directly where it is not** ("Data isolation",
    "Seed data the agent can't tell is a test"): schema through the service's migrations, the rest in
    `setup()` (usually `ctx.container.run_file("seed.py")`, a script next to `eval.py` that runs in the
@@ -280,16 +284,16 @@ class SupportEval(EvalRunner):
     # Started, migrated and in DATABASE_URL before setup(), in every trial.
     services = [Postgres("15", database="support", migrations="../../../migrations")]
     model = "anthropic/claude-sonnet-5-5"            # ctx.model; --model overrides it
-    secrets = ["ANTHROPIC_API_KEY"]                  # names only; values come from the shell or .env
-    env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}   # what the app's processes get
+    # What the app's processes get; a secret() is read from the shell or .env, never written here.
+    env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}
     new_task_toml = {"environment": {"workdir": "/case", "cpus": 2, "memory_mb": 4096},
                      "agent": {"timeout_sec": 600}}  # tasks without a task.toml get these
 
     async def setup(self, ctx):
         await ctx.container.run_file("seed.py", "/case/case.json")   # reads DATABASE_URL
         # The app: a foreground command; a process that exits counts as crashed.
-        await ctx.container.service("api", "uvicorn --app-dir /srv/app app.main:app --port 8080",
-                                    ready=http("http://127.0.0.1:8080/health"))
+        await ctx.container.spawn("api", "uvicorn --app-dir /srv/app app.main:app --port 8080",
+                                  ready=http("http://127.0.0.1:8080/health"))
 
     async def run(self, ctx):
         r = await ctx.container.sh(f"python -m app.cli handle /case/case.json --model {ctx.model}",
@@ -349,7 +353,7 @@ agents:                                        # optional: a model sweep, every 
 - Keep what differs per case small (data, instruction, reference answer) and everything else in `agent/`,
   so a new case is its data and never needs harness changes.
 - Keep reference answers in `tests/`, not in `environment/`: `verify()` reads them on the host
-  (`ctx.case.expected()`, `ctx.case.fixture(...)` for `tests/fixtures/`), and Harbor never uploads them
+  (`ctx.case.expected()`, `ctx.case.fixture_json(...)` for `tests/fixtures/`), and Harbor never uploads them
   to the container, so neither the agent nor the app can read them.
 - `instruction.md` is either the input `run()` sends to the entry point (the user message, the prompt),
   verbatim, or, when the input lives in `environment/`, a short scenario for people reading the task:
@@ -483,7 +487,7 @@ defaults to the Dockerfile's directory: use the repo root so it copies the live 
 any methods chained after it go on top of its last stage. Order it from rarely to often changing, and
 `COPY` the specific paths the image needs, never `COPY . .` from the repo root: that would bake in the
 whole repo, Harbor's job output and every task's `tests/` (reference answers) included. The readiness
-checks of `ctx.container.service` / `ctx.container.wait_for` run on the Laminar layer's own Python, so
+checks of `ctx.container.spawn` / `ctx.container.wait_for` run on the Laminar layer's own Python, so
 they need nothing from the image.
 
 ```dockerfile
@@ -539,7 +543,6 @@ from lmnr.evals import EvalRunner, Image, Postgres, Valkey, secret
 class SupportRunner(EvalRunner):
     image = Image.python("3.12").uv_sync("../../pyproject.toml").add_dir("../../app", "/srv/app/app")
     services = [Postgres("16", migrations="../../migrations"), Valkey("8")]
-    secrets = ["ANTHROPIC_API_KEY"]
     env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}
 
     async def setup(self, ctx):
@@ -590,12 +593,11 @@ class OcrEval(SupportRunner):
 
 Declare secrets by name in `eval.py`, never as values and never as `harbor run` flags:
 
-- `secrets = ["ANTHROPIC_API_KEY", ...]` lists every secret the run needs. `verify()` reads them in the
-  Harbor process as `ctx.secrets["NAME"]` (an LLM judge's key never has to enter the container). Reading
-  an undeclared name is an error.
 - `env = {...}` is the env of every command `ctx` runs in the container, in every phase. Pass a secret
-  with `secret("NAME")` (it must be in `secrets`); plain strings are settings. A secret that isn't in
-  `env` never reaches the container. Per-command extras go in `ctx.container.sh(..., env={...})`, but in `setup` /
+  with `secret("NAME")`, which also declares it; plain strings are settings.
+- `secrets = ["JUDGE_API_KEY", ...]` declares secrets that must NOT reach the container: `verify()` reads
+  them in the Harbor process (an LLM judge's key). Every declared secret, from either place, is
+  `ctx.secrets["NAME"]` there; reading an undeclared name is an error. Per-command extras go in `ctx.container.sh(..., env={...})`, but in `setup` /
   `run` / `collect` they can't override a key of `env` (Harbor applies the agent env last).
 
 `lmnr-cli eval run` reads each secret from the shell, then from `.env.local` / `.env` in the current
@@ -635,15 +637,17 @@ Every method runs in the Harbor process, on the host (your machine, or Laminar's
 `verify` (the same one by default; see "The verifier"). Anything that must run next to the app goes
 through it; plain Python in your methods (a judge call, reading `ctx.case.expected()`) runs on the host.
 
-- `ctx.container.sh(cmd, env=None, cwd=None, user="agent", timeout=None, check=True)`: a shell command;
-  returns `stdout`, `stderr`, `return_code`, and raises `CommandError` (with the output's tail) on a
-  non-zero exit unless `check=False`. `user="agent"` is the task's agent user (the verifier user in
+- `ctx.container.sh(cmd, env=None, cwd=None, user="agent", timeout=None, check=True)`: a `bash`
+  command; returns `stdout`, `stderr`, `return_code` (stdout and stderr apart, locally and with
+  `--remote` alike), and raises `CommandError` (with the output's tail) on a non-zero exit unless
+  `check=False`. A command past its `timeout` is killed with its children and raises `CommandTimeout`
+  (a `TimeoutError`, with the output so far), whatever `check` is. `user="agent"` is the task's agent user (the verifier user in
   `verify()`), `"root"` is root.
 - `ctx.container.run_file("seed.py", *args, ...)`: uploads a host file to a fresh `/tmp` directory, runs
   it (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where the
   agent under test could find them. A relative path resolves against the file whose code calls it
   (`eval.py`, or a shared module); `ctx.container.copy` resolves `host` the same way.
-- `ctx.container.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: for processes
+- `ctx.container.spawn(name, cmd, ready=..., env=None, timeout=60, user="agent")`: for processes
   that aren't declared `services`, typically the app under test. Starts `cmd` in the
   background (output in `/logs/agent/<name>.log`) and waits until `ready` passes. `cmd` must stay in the
   foreground (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`): a process that exits counts as
@@ -660,11 +664,13 @@ through it; plain Python in your methods (a judge call, reading `ctx.case.expect
   The fields show as the trial's output in Laminar when there is no trajectory.
 - `ctx.case`: `name` (`[task] name`), `dir` (the task directory on the host), `metadata` (`[metadata]`
   in `task.toml`), `instruction`, `file(path)` (under `environment/`), `expected()` (`tests/expected.json`),
-  `fixture(path)` / `fixture_json(path)` (under `tests/fixtures/`).
+  `fixture_text(path)` / `fixture_json(path)` / `fixture_bytes(path)` and `fixture_path(path)` (under
+  `tests/fixtures/`; mock handlers get the same readers, without the path).
 - `ctx.model`, `ctx.env` (the resolved `env` plus the services' and mocks' variables), `ctx.logger` (its lines also go to the verifier's log).
 - `self.service(Postgres)` / `self.service("name")` and `self.mirror("slack")`: a declared service, for its
   helpers ("Services", "Mirrors"); `ctx.state("postgres", "refunds")` (verify) reads a table a service
-  saved with `snapshot=[...]`.
+  saved with `snapshot=[...]`, and `ctx.state("slack", "calls")` / `("slack", "state")` a mirror's with
+  `snapshot=True`.
 
 Rules that keep cases comparable:
 
@@ -852,7 +858,7 @@ class SupportEval(EvalRunner):
 - **`setup()` only seeds and starts the app**: `ctx.container.run_file("seed.py")` (it reads the same
   env), or the helpers: `self.service(Postgres).insert(ctx, "users", rows)`, `.sql(ctx, query) -> rows`,
   `.execute(ctx, sql)`, `.load_sql(ctx, "baseline.sql")`; `self.service(ClickHouse).insert(ctx, table,
-  rows)` / `.query(ctx, sql)`; `self.service(Valkey).cmd(ctx, "SET", "k", "v")`. `ctx.container.service`
+  rows)` / `.query(ctx, sql)`; `self.service(Valkey).cmd(ctx, "SET", "k", "v")`. `ctx.container.spawn`
   is for processes no `Service` covers, typically the app itself.
 - **Versions are required:** pin the version production (or the project's compose file) runs. `"latest"`
   works but warns on every run.
@@ -898,7 +904,7 @@ class SupportEval(EvalRunner):
 - *The app itself.* Run the production artifact: the real package started by `setup()`, or a compiled
   binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that
   imports and calls it in-process.
-- *Readiness.* Give the app's `ctx.container.service` a `ready` check: the health endpoint (`http(...)`),
+- *Readiness.* Give the app's `ctx.container.spawn` a `ready` check: the health endpoint (`http(...)`),
   the port (`port(...)`), or a probe command (`cmd(...)`). Declared services have theirs built in.
 - *Env.* `ctx` commands get only the runner's `env`, the services' env and what Harbor sets, never the
   host's shell. If the app is started with `env -i` and an explicit minimal env, forward the names it
@@ -930,10 +936,10 @@ class SupportEval(EvalRunner):
 
 - **Access.** On `lmnr-cli eval run --remote`, Laminar gives every trial sandbox its own short-lived
   Rystic access (`RYSTIC_TOKEN` and the proxy URLs). A local run uses the user's own Rystic API key
-  (https://www.rystic.ai/account/api-keys; Slack, Linear and GitHub are on the free plan), passed with
-  `lmnr-cli eval run --env RYSTIC_TOKEN` (read from the shell, `.env.local` or `.env`). Never put
-  `RYSTIC_TOKEN` in `env`, `secrets` or `harbor.yaml`: on `--remote` it would replace the trial's. Without
-  a token the mirror's start fails, saying how to pass one.
+  (https://www.rystic.ai/account/api-keys; Slack, Linear and GitHub are on the free plan): `lmnr-cli eval
+  run` reads `RYSTIC_TOKEN` from the shell, `.env.local` or `.env` and passes it to the trials when a
+  dataset declares a Rystic mirror, and fails before building anything (exit `19`) without one. Never put
+  `RYSTIC_TOKEN` in `env`, `secrets` or `harbor.yaml`: on `--remote` it would replace the trial's.
 - `version` pins the simulator (`rystic list` shows the versions). The image gets the pinned Rystic CLI
   (no key needed); each trial downloads the simulator before it starts.
 - `seed=case_fixture("slack.json")` loads each case's `tests/fixtures/slack.json` (a register map) after
@@ -962,10 +968,11 @@ couldn't be used.
 ```python
 from lmnr.evals import EvalRunner, mock
 
-def get_customer(call, ctx):              # function mock: the app's observed crm.get_customer
-    customer = ctx.fixture_json("crm.json").get(call.args["email"])
+def get_customer(call, ctx):              # function mock: the app's observed crm.get_customer(email)
+    email = call.args[0]
+    customer = ctx.case.fixture_json("crm.json").get(email)
     if customer is None:
-        raise mock.Error("CustomerNotFound", f"no customer {call.args['email']}")
+        raise mock.Error("CustomerNotFound", f"no customer {email}")
     return customer
 
 def helpdesk(req, ctx):                   # HTTP mock
@@ -978,9 +985,6 @@ class SupportEval(EvalRunner):
         "crm.get_customer": get_customer,
         "https://helpdesk.example.com/api": mock.http(helpdesk, base_url_env="HELPDESK_API_URL"),
     }
-    # eval.py imports the judge's SDK at the top (the model itself is never mocked), and the mock
-    # server imports eval.py in the container
-    mock_dependencies = ["anthropic>=2.4.0"]
 
     async def verify(self, ctx):
         posts = [c for c in ctx.mocks.calls("https://helpdesk.example.com/api")
@@ -1008,12 +1012,14 @@ class SupportEval(EvalRunner):
   - *Key*: `observe(mock_key=...)` (TS `mockKey`), else the span name (`@observe(name="crm.get_customer")`),
     else the function's name. `observe(mockable=False)` (TS `mockable: false`) makes a function always
     run.
-  - *Handler*: gets `call` (`key`, `args`, `index`) and returns the function's return value, raises
-    `mock.Error(type, message)` for the function to raise, or returns `mock.PASSTHROUGH` to run the real
-    function. `args` are by parameter name in Python (`self` / `cls` dropped, defaults filled in) and the
-    argument list in TypeScript, serialized like span input.
-  - *In the app*, `mock.Error` raises `lmnr.MockedError` (`.type`, `.message`) in Python and a
-    `MockedError` from `@lmnr-ai/lmnr` whose `name` is the type in TypeScript. Python builds a returned
+  - *Handler*: gets `call` (`key`, `args`, `kwargs`, `index`) and returns the function's return value,
+    raises `mock.Error(type, message)` for the function to raise, or returns `mock.PASSTHROUGH` to run
+    the real function. `args` is the positional argument list in both languages, serialized like span
+    input: TypeScript's arguments as passed; in Python every positional parameter in order, defaults
+    filled in and `self` / `cls` dropped, then `*args`. Python's keyword-only parameters and `**kwargs`
+    are in `kwargs` (`{}` for TypeScript).
+  - *In the app*, `mock.Error` raises a `MockedError` with `.type` and `.message` (`lmnr.MockedError`
+    in Python; from `@lmnr-ai/lmnr` in TypeScript, where `name` is the type too). Python builds a returned
     value into the function's return annotation when it fits (pydantic models, dataclasses, TypedDicts),
     and returns the JSON as is, with a warning in the app's log, when it doesn't.
   - *Requirements*: the app needs `lmnr` 0.9.3 or later (Python) / `@lmnr-ai/lmnr` 0.9.8 or later
@@ -1030,15 +1036,18 @@ class SupportEval(EvalRunner):
     `agent/mocks.log`). The trace marks answered calls with `lmnr.span.mocked`, and the call log has each
     call's `trace_id` / `span_id`.
 - Every handler also gets `ctx`: `ctx.state` (one dict per trial, shared by all handlers),
-  `ctx.calls` (this key's earlier calls), `ctx.fixture(path)` / `fixture_text` / `fixture_json` (the
-  case's `tests/fixtures/`), `ctx.case.name` / `ctx.case.metadata`, `ctx.env`. Calls are handled one at a
+  `ctx.calls` (this key's earlier calls), `ctx.case.fixture_json(path)` / `fixture_text` /
+  `fixture_bytes` (the case's `tests/fixtures/`, as in `verify()`), `ctx.case.name` /
+  `ctx.case.metadata`, `ctx.env`. Calls are handled one at a
   time, so `index` and `state` are deterministic.
 - **Handlers run in the container**, in a mock server the runner starts after `services` and before
   `setup`. They must be top-level functions (sync or async) in `eval.py` or a module under `evals/`
   (`_shared/mocks.py`), not lambdas or methods. The server imports `eval.py` there, so whatever it
-  imports at the top must be installed: list it in `mock_dependencies` (they go into the Laminar layer,
-  not the app's environment; packages from `evals/pyproject.toml` are installed only on the host). The handlers and fixtures exist only in the server's memory once it has
-  started; the agent can't read them.
+  imports at the top must be installed there too. By default the Laminar layer (not the app's
+  environment) gets the same packages as the host: `evals/pyproject.toml`'s dependencies and
+  `eval.py`'s PEP 723 block. `mock_dependencies = [...]` replaces that list (a heavy judge dependency the
+  handlers don't need), and `[mock.PROJECT_DEPENDENCIES, "extra"]` extends it. The handlers and
+  fixtures exist only in the server's memory once it has started; the agent can't read them.
 - **Per-case data** goes in `tests/fixtures/`, next to `expected.json`, never in `environment/` (which
   the agent can read).
 - **Grade with the call log.** In `verify()`, `ctx.mocks.calls(key)` lists one mock's calls in order
@@ -1083,14 +1092,14 @@ missing them can start but silently never bind its port.
 ## Harbor runtime facts and quirks
 - Harbor starts the container with its own keep-alive command (`sleep infinity` on local Docker), so don't
   rely on `CMD` or a base image's entrypoint (the `postgres` image's init) to start anything. Declared
-  services and `ctx.container.service` processes (`nohup`, output to `/logs/agent/<name>.log`) survive
+  services and `ctx.container.spawn` processes (`nohup`, output to `/logs/agent/<name>.log`) survive
   after `setup()` returns. A background process started with plain `ctx.container.sh` must redirect its
   output, or the call may not return.
 - **No ports are published to the host.** Every call to the app must come from a process inside the
   container (`ctx.container.sh`, `ctx.container.run_file`).
 - `/logs/agent/` and `/logs/verifier/` are shared between container and host. Write every log under
   `/logs/agent/`.
-- For `Service.custom` and `ctx.container.service` processes (declared built-ins handle these): some
+- For `Service.custom` and `ctx.container.spawn` processes (declared built-ins handle these): some
   servers refuse to run as root (start them with `user=` their service user, and make the log directory
   writable by it first: `await ctx.container.sh("chmod 777 /logs/agent", user="root")`); `cmd` must stay in
   the foreground (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`), since an exited process counts
@@ -1116,7 +1125,7 @@ seed data, the verifier, what to report), read [evals-from-clusters.md](evals-fr
 
 Once the harness exists, a case is its data:
 
-1. `lmnr-cli eval task new evals/<dataset>/tasks/<case-dir>` writes `task.toml` (`[task] name =
+1. `lmnr-cli eval task new <dataset> <case-dir>` writes `task.toml` (`[task] name =
    "<org>/<case-dir>"` with the `[dataset] name`'s org, `docker_image`, the runner's `new_task_toml`),
    `instruction.md` and `tests/test.sh` (stubs; replace `instruction.md` in step 2). `eval run` and `eval dataset push` write the same files
    for any task directory that lacks them, and add a missing `[task] name` / `docker_image` to an existing
@@ -1226,7 +1235,7 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
       inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] Databases and caches are declared `services` at production's versions, with the app's own
-      migrations; `setup()` seeds and starts the app with `ctx.container.service` and a `ready` check;
+      migrations; `setup()` seeds and starts the app with `ctx.container.spawn` and a `ready` check;
       `run()` passes `ctx.model`,
       records the outcome (including `failed` / `timeout`) with `ctx.set_result(...)`, and raises only for
       harness errors
