@@ -125,8 +125,9 @@ changes.
 ## Principles
 
 1. **Production fidelity over convenience.** Run the real code and real services (database, queue,
-   cache, object store) for as much of the stack as possible. Seed them; don't mock them. Mock only what
-   you truly cannot run (third-party SaaS, private internal services), as a last resort, at the network
+   cache, object store) for as much of the stack as possible. Seed them; don't mock them. For a
+   third-party SaaS API, use a simulator of it where one exists ("Mirrors"). Mock only what you truly
+   cannot run (private internal services, a SaaS with no simulator), as a last resort, at the network
    edge (base URL / profile config), never by editing the code path. **Tell the user about every mock**
    and why it was needed; a mock is a gap in what the eval measures.
 2. **Zero production changes.** Find an existing public entry point (an HTTP route, CLI command, queue
@@ -152,17 +153,20 @@ Work through these in order; each step links to the section with the details.
    produces (a response body, a status row, an emitted record) and how to read it; the **external calls**
    (LLM, HTTP) and how they are configured (env, config row, profile). If existing tests seed a fixture for
    this path, copy their seeding shape: it is the best statement of which fields are actually required.
-2. **Lay out `evals/`**: `<dataset>/agent/eval.py`, `<dataset>/agent/Dockerfile`,
-   `<dataset>/tasks/dataset.toml` with its `[dataset] name`, and one case under `<dataset>/tasks/` with
-   `environment/case.json` and its reference answer in `tests/expected.json`. `lmnr-cli eval task new
-   <dataset>/tasks/<case>` writes the rest ("Directory structure", "Use one prebuilt image"). If the project
-   already has eval datasets in Laminar, run `lmnr-cli eval dataset pull` first.
-3. **Build the one image and boot the services**: the Dockerfile installs the services and the app,
-   `setup()` starts them with `ctx.container.service` and waits for readiness. Pin service versions to what
-   production/compose uses ("Services", "Harbor runtime facts and quirks").
-4. **Seed through the real interface where it is cheap, directly where it is not**, in `setup()` (usually
-   `ctx.container.run_file("seed.py")`, a script next to `eval.py` that runs in the container and loads
-   `case.json`) ("Data isolation", "Seed data the agent can't tell is a test"):
+2. **Lay out `evals/`**: `<dataset>/agent/eval.py`, `<dataset>/tasks/dataset.toml` with its
+   `[dataset] name`, and one case under `<dataset>/tasks/` with `environment/case.json` and its reference
+   answer in `tests/expected.json`. `lmnr-cli eval task new <dataset>/tasks/<case>` writes the rest
+   ("Directory structure", "Use one prebuilt image"). If the project already has eval datasets in Laminar,
+   run `lmnr-cli eval dataset pull` first.
+3. **Declare the image and the services** in `eval.py`: an `Image` with the app's dependencies and live
+   source ("Building the image"), and `services = [Postgres("16", migrations=...), ...]` pinned to what
+   production/compose uses. The runner installs them into the image, and in every trial starts,
+   migrates and seeds them before `setup()`; `setup()` starts the app itself with
+   `ctx.container.service` ("Services").
+4. **Seed through the real interface where it is cheap, directly where it is not** ("Data isolation",
+   "Seed data the agent can't tell is a test"): schema through the service's migrations, the rest in
+   `setup()` (usually `ctx.container.run_file("seed.py")`, a script next to `eval.py` that runs in the
+   container and loads `case.json`, or the service's helpers: `self.service(Postgres).insert(ctx, ...)`):
    - Use the app's own API for anything that involves encryption, validation or derived fields (e.g.
      creating an LLM profile with secrets: the server encrypts them; don't hand-encrypt).
    - Insert directly into the database for things the API gates behind plan limits or auth you don't have,
@@ -194,20 +198,26 @@ Work through these in order; each step links to the section with the details.
 
 ## Data isolation
 
-Isolated environments let each case start from exactly the data it needs. Decide per dataset which of
-two kinds it is:
+Isolated environments let each case start from exactly the data it needs. Every container starts its
+own services with empty data, so isolation holds whatever you seed. Most datasets have **shared baseline
+data** (the same for every case: schema, reference tables, a default org/user/project, an LLM profile)
+and **per-case data** (what makes the case reproduce a specific behaviour from production: the
+conversation, the spans, the records that triggered a failure; usually the bulk of the case). Put each
+kind where it belongs:
 
-- **Shared baseline data**: the same for every case (reference tables, a default org/user/project, config
-  rows, an LLM profile). Seed it once in the image build, or in `setup()` (or the seed script it runs,
-  `agent/seed.py`), which runs at startup in every container. Each container still gets its own copy, so
-  isolation holds.
-- **Per-case data**: what makes the case reproduce a specific behaviour from production (the conversation,
-  the spans, the records that triggered a failure). This is usually the bulk of the case. It lives in the
-  task's `environment/` directory (uploaded into the container's workdir before `setup()`) and is loaded
-  at startup by the same seed script for every case.
+| Data | Where | How |
+| --- | --- | --- |
+| Schema, reference tables, anything static | the service's migrations, in every trial (or in the image with `migrate_at="build"`) | `Postgres("16", migrations="../../../migrations")` |
+| Baseline that needs the running app (rows its API creates with encryption or validation, "now"-relative timestamps) | one shared seed script, in every trial | `setup()` runs `ctx.container.run_file("seed.py")` |
+| Per-case data the app reads | the task's `environment/` (uploaded into the workdir before `setup()`), loaded by the **same** shared seed | `/case/case.json` in the container, `ctx.case.file(...)` on the host |
+| Per-case data the agent must not see (a mirror's seed, a dump it would recognise) | the task's `tests/fixtures/` (not in the container while the agent runs) | `seed=case_fixture("...")` on a service, `ctx.case.fixture(...)` in `setup()` |
+| Per-case logic the shared seed can't express | the task's `environment/seed.py` / `seed.sh` | the default `setup()` runs it; if many cases need one, generalise the shared seed instead |
+| A shared staging or external database | outside the container | only for read-only cases or `n_concurrent_trials: 1`; it isn't reproducible and `--remote` may not reach it. Tell the user it is a gap |
 
-Most real setups have both. Keep per-case data in one format your seed script reads (`case.json`, a SQL
-file, a directory of fixtures), so the seed script is shared and only the data differs.
+Keep per-case data in one format your seed script reads (`case.json`, a SQL file, a directory of
+fixtures), so the seed script is shared and only the data differs. A service's `seed` (a `.sql` file
+for `Postgres`, a scenario for a mirror) is loaded after its migrations and before `setup()`, from a
+temporary file that is deleted after.
 
 ## Directory structure
 
@@ -232,8 +242,8 @@ evals/
   <folder>/                       # e.g. support
     harbor.yaml                   # (optional) Harbor JobConfig settings: concurrency, timeouts, a model sweep
     agent/
-      eval.py                     # the EvalRunner: image, secrets, setup, run, verify
-      Dockerfile                  # the one image: services, app artifact, baseline data
+      eval.py                     # the EvalRunner: image, services, secrets, setup, run, verify
+      Dockerfile                  # (optional) only with Image.from_dockerfile; the builder needs none
       seed.py                     # (optional) run in the container by setup(): seed this case's data
     tasks/
       dataset.toml                # [dataset] name + the task versions this checkout uses; committed
@@ -256,12 +266,18 @@ A minimal `eval.py`:
 ```python
 import json
 
-from lmnr.evals import EvalRunner, Image, http, secret
+from lmnr.evals import EvalRunner, Image, Postgres, http, secret
 
 
 class SupportEval(EvalRunner):
-    # Paths are relative to this file; the context is the repo root, so the image copies the app source.
-    image = Image.from_dockerfile("Dockerfile", context="../../..")
+    # Paths are relative to this file (evals/support/agent/eval.py): ../../.. is the repo root.
+    image = (
+        Image.python("3.12")
+        .uv_sync("../../../pyproject.toml")          # locked dependencies: cached until uv.lock changes
+        .add_dir("../../../app", "/srv/app/app")     # the live source, last
+    )
+    # Started, migrated and in DATABASE_URL before setup(), in every trial.
+    services = [Postgres("15", database="support", migrations="../../../migrations")]
     model = "anthropic/claude-sonnet-5-5"            # ctx.model; --model overrides it
     secrets = ["ANTHROPIC_API_KEY"]                  # names only; values come from the shell or .env
     env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}   # what the app's processes get
@@ -269,16 +285,14 @@ class SupportEval(EvalRunner):
                      "agent": {"timeout_sec": 600}}  # tasks without a task.toml get these
 
     async def setup(self, ctx):
-        await ctx.container.sh("chmod 777 /logs/agent", user="root")  # service logs, written as postgres
-        # Foreground commands: a service whose process exits counts as crashed.
-        await ctx.container.service("postgres", "/usr/lib/postgresql/15/bin/postgres -D /var/lib/pg",
-                                    ready="pg_isready -h 127.0.0.1", user="postgres")
-        await ctx.container.run_file("seed.py", "/case/case.json")
-        await ctx.container.service("api", "uvicorn app.main:app --port 8080", ready=http("http://127.0.0.1:8080/health"))
+        await ctx.container.run_file("seed.py", "/case/case.json")   # reads DATABASE_URL
+        # The app: a foreground command; a process that exits counts as crashed.
+        await ctx.container.service("api", "uvicorn --app-dir /srv/app app.main:app --port 8080",
+                                    ready=http("http://127.0.0.1:8080/health"))
 
     async def run(self, ctx):
         r = await ctx.container.sh(f"python -m app.cli handle /case/case.json --model {ctx.model}",
-                                   timeout=300, check=False)
+                                   cwd="/srv/app", timeout=300, check=False)
         if r.return_code == 0:
             ctx.set_result(outcome="completed", reply=r.stdout.strip())
         else:
@@ -289,8 +303,8 @@ class SupportEval(EvalRunner):
         result = ctx.result()                        # what run() recorded
         if result.get("outcome") != "completed":
             return {"refund": 0, "reply": 0}
-        # Host Python; only the command runs in the container (the agent's, by default).
-        rows = json.loads((await ctx.container.sh("python -m app.cli dump-refunds --json")).stdout)
+        # Host Python; only the query runs in the container (the agent's, by default).
+        rows = await self.service(Postgres).sql(ctx, "SELECT * FROM refunds")
         reply_ok = await judge(result["reply"], expected["reply_should"])   # your own function
         return {"refund": len(rows) == expected["refund_count"], "reply": reply_ok}
 ```
@@ -304,12 +318,13 @@ class SupportEval(EvalRunner):
   needs belongs in the image.
   The file is imported more than once (to read its configuration, then by Harbor), so keep module-level
   code to constants and definitions.
-- **`image`**: `Image.from_dockerfile(path, context=...)` (relative to the file that calls it, here
-  `eval.py`; `context` is the `docker
-  build` context, default the Dockerfile's directory; use the repo root so the image copies the app source
-  and migrations from the live tree) or `Image.from_registry("python:3.13-slim")` for a public image. The
-  image is named `<dataset folder>-evals`. Several images: a dict, `{"support-evals": ..., "support-gpu":
-  ...}`; the first is the default, and a task picks another with `docker_image`.
+- **`image`**: built with `Image`'s methods from the live source tree ("Building the image"), or
+  `Image.from_dockerfile(path, context=...)` for an existing Dockerfile, or
+  `Image.from_registry("python:3.13-slim")` as is. The image is named `<dataset folder>-evals`. Several
+  images: a dict, `{"support-evals": ..., "support-ocr": ...}`; the first is the default, and a task picks
+  another with `docker_image`.
+- **`services`**: the databases, caches and simulated SaaS APIs the app talks to ("Services",
+  "Mirrors"). `self.service(Postgres)` (or `self.service("postgres")`) returns one, for its helpers.
 - **`model`** is the default model (`ctx.model`); `--model` and `harbor.yaml` override it, so read
   `ctx.model` instead of hard-coding one in `run()`.
 - **`new_task_toml`** holds the `task.toml` tables every case shares (`[environment]` resources and
@@ -327,24 +342,6 @@ n_concurrent_trials: 4                         # what the local machine can run
 agents:                                        # optional: a model sweep, every case runs on each
   - model_name: anthropic/claude-sonnet-5-5
   - model_name: anthropic/claude-opus-5-5
-```
-
-Order the Dockerfile from rarely to often changing, so an app change rebuilds (and for `--remote`
-uploads) one small layer. `COPY` the specific paths the image needs, never `COPY . .` from the repo root:
-BuildKit only sends what `COPY`/`ADD` reference, so a large repo costs nothing, while `COPY . .` would bake
-in all of it, Harbor's job output and every task's `tests/` (reference answers) included. Copy nothing
-from `evals/`. `.dockerignore` applies, and `lmnr-cli` never lets `.git` or `.env*` into a build. The
-readiness checks of `ctx.container.service` / `ctx.container.wait_for` run under `bash`, so the image needs it.
-
-```dockerfile
-FROM python:3.12-slim-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      postgresql redis-server curl && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt /srv/app/
-RUN pip install --no-cache-dir -r /srv/app/requirements.txt
-COPY migrations/ /srv/app/migrations/
-COPY app/ /srv/app/app/
-WORKDIR /case
 ```
 
 - Keep what differs per case small (data, instruction, reference answer) and everything else in `agent/`,
@@ -439,6 +436,62 @@ lmnr-cli eval dataset pull [<dataset>...] [--task <glob>]... [--force] [--dry-ru
   column linking each run to its dataset; to see one dataset's runs together, open its evaluation group
   (the dataset name, or the `--group` you used).
 
+## Building the image
+
+Declare the image in `eval.py` with `Image`'s methods; `lmnr-cli` compiles it to a Dockerfile and builds
+it before the run. Each method returns a new `Image` and adds one layer, in the order written:
+
+```python
+image = (
+    Image.python("3.12")                                   # python:3.12-slim-trixie
+    .apt_install("poppler-utils")                          # system packages the app itself needs
+    .uv_sync("../../../pyproject.toml")                    # locked dependencies, not the project
+    .add_dir("../../../app", "/srv/app/app")               # the code, last
+    .env(APP_ENV="production")
+)
+```
+
+- **Bases:** `Image.python(v)`, `Image.uv_python(v)` (Python with `uv`), `Image.node(v)`,
+  `Image.debian_slim()`, `Image.from_registry(ref)`. Match the language version production runs.
+- **Dependencies:** `uv_sync(pyproject)` (`pyproject.toml` and `uv.lock` mounted for the build, `uv sync
+  --frozen` into the image's Python), `pip_install_from_requirements(path)`, `npm_ci(dir, dst)`
+  (`package.json` and the lockfile, then `npm ci`), `pnpm_install(dir, dst)` (`package.json`,
+  `pnpm-lock.yaml` and `pnpm-workspace.yaml`, then a frozen install with the pnpm version in
+  `packageManager`; `.npmrc` is only mounted), `pip_install(...)`, `uv_pip_install(...)`,
+  `apt_install(...)`. Install from the project's lockfile so the image has the versions production has.
+  Databases and caches don't go here: declare them in `services`.
+- **Files and settings:** `add_dir(src, dst)`, `add_file(src, dst)`, `run_commands(...)`, `env(...)`,
+  `workdir(path)` (default `/case`, where `environment/` is uploaded).
+- **Order from rarely to often changing**: dependencies, then code. An app change then rebuilds (and for
+  `--remote` uploads) one small layer; services always come first, so it never reinstalls them.
+- **Paths are relative to the file that declares the step** (`eval.py`, or a shared module). The build
+  context is the deepest directory holding everything the image adds, and only the added paths are sent,
+  so a large repo costs nothing. Add specific paths from the live tree; nothing from `evals/` (harness
+  scripts reach the container through `ctx.container.run_file`, reference answers stay in `tests/`).
+  `.dockerignore` in the context applies, and `lmnr-cli` never lets `.git` or `.env*` into a build.
+- **See what it builds:** `lmnr-cli eval describe <dataset>` prints the image's steps and services with
+  the file and line that declared each; `--json` has the whole generated Dockerfile. Every run keeps a
+  copy in the job folder (`jobs/<job>/<image>.Dockerfile`), and each block of it starts with a comment
+  naming its origin (`# _shared/support.py:12 (SupportRunner)`).
+
+**From a Dockerfile.** When the app already has an image definition, or needs more than these steps,
+`Image.from_dockerfile("Dockerfile", context="../../..")` (relative to the file that calls it; `context`
+defaults to the Dockerfile's directory: use the repo root so it copies the live source). Services and
+any methods chained after it go on top of its last stage. Order it from rarely to often changing, and
+`COPY` the specific paths the image needs, never `COPY . .` from the repo root: that would bake in the
+whole repo, Harbor's job output and every task's `tests/` (reference answers) included. The readiness
+checks of `ctx.container.service` / `ctx.container.wait_for` run under `bash`, so the image needs it (the
+builder's bases have it).
+
+```dockerfile
+FROM python:3.12-slim-trixie
+COPY requirements.txt /srv/app/
+RUN pip install --no-cache-dir -r /srv/app/requirements.txt
+COPY migrations/ /srv/app/migrations/
+COPY app/ /srv/app/app/
+WORKDIR /case
+```
+
 ## Use one prebuilt image
 
 Every task's `task.toml` sets `docker_image` to one of the dataset's images (`lmnr-cli` writes the default
@@ -466,10 +519,10 @@ memory_mb = 4096
   runner doesn't declare, fails `eval run` and `eval dataset push` (exit `16`) before anything runs:
   Harbor would build or pull that image itself, without what the runner adds to its images. When a case
   genuinely needs a different system, declare a named image on the runner and pick it in that task:
-  `image = {"support-evals": Image.from_dockerfile("Dockerfile", ...), "support-ocr":
-  Image.from_dockerfile("Dockerfile.ocr", ...)}` (the first is the default), then `docker_image =
-  "support-ocr"` in its `task.toml`. Everything else that varies per case is data: `environment/`,
-  `tests/fixtures/`, `[metadata]` in `task.toml`.
+  `image = {"support-evals": base, "support-ocr": base.apt_install("tesseract-ocr")}` (the first is the
+  default), then `docker_image = "support-ocr"` in its `task.toml`. A variant built from the same `base`
+  shares its layers, so it costs one extra layer. Everything else that varies per case is data:
+  `environment/`, `tests/fixtures/`, `[metadata]` in `task.toml`.
 
 ## Shared runners
 
@@ -478,10 +531,11 @@ point), they share the runner instead of copying it, and so share one image:
 
 ```python
 # evals/_shared/support.py
-from lmnr.evals import EvalRunner, Image, secret
+from lmnr.evals import EvalRunner, Image, Postgres, Valkey, secret
 
 class SupportRunner(EvalRunner):
-    image = Image.from_dockerfile("Dockerfile", context="../..")   # evals/_shared/Dockerfile
+    image = Image.python("3.12").uv_sync("../../pyproject.toml").add_dir("../../app", "/srv/app/app")
+    services = [Postgres("16", migrations="../../migrations"), Valkey("8")]
     secrets = ["ANTHROPIC_API_KEY"]
     env = {"ANTHROPIC_API_KEY": secret("ANTHROPIC_API_KEY")}
 
@@ -496,6 +550,10 @@ from _shared.support import SupportRunner
 
 class RefundsEval(SupportRunner):
     env = {**SupportRunner.env, "SUPPORT_QUEUE": "refunds"}       # the only difference, visible here
+
+# evals/ocr/agent/eval.py
+class OcrEval(SupportRunner):
+    image = SupportRunner.image.apt_install("tesseract-ocr")      # a variant: one more layer
 ```
 
 - Any folder directly in `evals/` that isn't a dataset (no `harbor.yaml`, no `agent/eval.py`; by
@@ -503,12 +561,21 @@ class RefundsEval(SupportRunner):
   reads `eval.py` and when Harbor runs it, and `--remote` uploads the folder with the run.
 - Each `eval.py` still defines exactly one runner class, which can be a one-line subclass. Write a
   difference as an explicit extension of the parent's attribute, so a reader sees it in one place:
-  `env = {**SupportRunner.env, ...}`, `secrets = SupportRunner.secrets + [...]`, an image dict whose
-  default is `SupportRunner.image`.
-- **Relative paths resolve against the file that declares them.** `Image.from_dockerfile(...)` resolves
-  against the file it is called in, `ctx.container.run_file(...)` / `ctx.container.copy(...)` against the file whose code calls
-  them. So the shared runner's Dockerfile and scripts live next to it and work from every dataset, while a
-  subclass's own `ctx.container.run_file("x.py")` finds `x.py` next to its `eval.py`.
+  `env = {**SupportRunner.env, ...}`, `secrets = SupportRunner.secrets + [...]`,
+  `services = [*SupportRunner.services, ClickHouse("25.8")]`, `image = SupportRunner.image.<step>(...)`.
+- **Identical images are built once.** Datasets whose images come out the same (same steps, same
+  services, same files) share one build in a run, whichever runner declared them, and a variant reuses
+  the layers of the image it extends.
+- **Each step records where it was declared.** The generated Dockerfile has a comment above each block
+  (`# _shared/support.py:12 (SupportRunner)`, `# service: Postgres 16 (_shared/support.py:13)`), and
+  `lmnr-cli eval describe <dataset>` shows the runner's class chain with their files, each image step and
+  each service with its origin. Run it to answer "where does this dataset's image / env come from?"
+  before editing a shared runner.
+- **Relative paths resolve against the file that declares them.** `Image` steps,
+  `Image.from_dockerfile(...)` and services' `migrations` / `seed` resolve against the file they are
+  called in, `ctx.container.run_file(...)` / `ctx.container.copy(...)` against the file whose code calls
+  them. So the shared runner's paths and scripts work from every dataset, while a subclass's own
+  `ctx.container.run_file("x.py")` finds `x.py` next to its `eval.py`.
 - **The image comes only from the runner class chain.** Tasks pick one of the runner's named images and
   nothing else ("Use one prebuilt image"); what differs per case is data the shared code reads.
 - Shared modules import the standard library, `lmnr` and packages from `evals/pyproject.toml`, never
@@ -541,8 +608,9 @@ container, `[verifier.env]`), resolved the same way; `${VAR:-default}` makes one
 
 Each trial runs four phases, each given a `ctx` for that trial:
 
-- **`setup(ctx)`**: start the services and seed this case's data, after Harbor uploaded `environment/`
-  into the workdir. Default: run the case's own `environment/seed.py` / `seed.sh` if it has one.
+- **`setup(ctx)`**: seed this case's data and start the app, after Harbor uploaded `environment/` into
+  the workdir and the runner started the declared `services`. Default: run the case's own
+  `environment/seed.py` / `seed.sh` if it has one.
 - **`run(ctx)`**: drive the entry point and record the outcome with `ctx.set_result(...)`. For a single
   command, set `run_command = "..."` instead of defining it.
 - **`collect(ctx)`** *(optional)*: runs after `run()`, also when it raised or timed out (with two minutes
@@ -570,7 +638,8 @@ through it; plain Python in your methods (a judge call, reading `ctx.case.expect
   it (shebang, `.py` with `python3`, else `bash`) and deletes it, so harness scripts never stay where the
   agent under test could find them. A relative path resolves against the file whose code calls it
   (`eval.py`, or a shared module); `ctx.container.copy` resolves `host` the same way.
-- `ctx.container.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: starts `cmd` in the
+- `ctx.container.service(name, cmd, ready=..., env=None, timeout=60, user="agent")`: for processes
+  that aren't declared `services`, typically the app under test. Starts `cmd` in the
   background (output in `/logs/agent/<name>.log`) and waits until `ready` passes. `cmd` must stay in the
   foreground (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`): a process that exits counts as
   crashed. `user` also takes a service user (`"postgres"`). Ready checks: `port(5432)`, `http(url)`,
@@ -587,6 +656,9 @@ through it; plain Python in your methods (a judge call, reading `ctx.case.expect
   in `task.toml`), `instruction`, `file(path)` (under `environment/`), `expected()` (`tests/expected.json`),
   `fixture(path)` / `fixture_json(path)` (under `tests/fixtures/`).
 - `ctx.model`, `ctx.env` (the resolved `env`), `ctx.logger` (its lines also go to the verifier's log).
+- `self.service(Postgres)` / `self.service("name")` and `self.mirror("slack")`: a declared service, for its
+  helpers ("Services", "Mirrors"); `ctx.state("postgres", "refunds")` (verify) reads a table a service
+  saved with `snapshot=[...]`.
 
 Rules that keep cases comparable:
 
@@ -609,8 +681,10 @@ container, so it can query the app's database or read files the run wrote. Which
 - **`"shared"`** (the default): the agent's container, after the agent finishes, with everything the run
   left behind (services keep running).
 - **`"separate"`**: a fresh container from the same image, which sees only the run's artifacts.
-  `ctx.result()` still works. Prefer this when grading must not see the app's internals. It's rare: most
-  datasets grade in the shared container.
+  `ctx.result()` still works. No services run there and their env isn't set: give a service
+  `snapshot=["table", ...]` (a mirror `snapshot=True`) so `collect` saves its state, and read it with
+  `ctx.state(...)` / `mirror.state(ctx)`; the live helpers (`sql`, `query`, `cmd`) raise. Prefer this
+  when grading must not see the app's internals. It's rare: most datasets grade in the shared container.
 
 **Artifacts** are the files collected for grading after the agent phase (both modes). Declare them on the
 runner, or save them from `collect`:
@@ -746,40 +820,123 @@ from how it behaves in production, and then the eval measures the wrong thing. F
 ## Services
 
 Goal: the container contains everything the entry point touches, started the way production starts it.
-Single container, no docker-in-docker: boot the real dependencies in it.
+Single container, no docker-in-docker: the real dependencies run in it. Declare them on the runner;
+user code never starts them:
 
-- *Databases.* Start them in `setup()` as background processes (`ctx.container.service`) with the engine's own
-  bootstrap (`initdb`, `clickhouse server`, `mysqld`, `redis-server`...). Use trust/no-password auth locally and a throwaway
-  password where the app's connection string requires one.
-- *Getting the binaries.* Use the simplest source that gives you the version production runs: the
-  distro package manager (`apt-get install postgresql-16`), the vendor's apt repo, or the vendor's release
-  tarball. When a specific version is hard to get that way, copy it from the official image with a
-  multi-stage `COPY --from=<official image>:<version>` (copy the shared libs it needs too).
-- *Schemas.* If the app has migrations, reproduce what its own startup/migration does, in the same order:
-  extra roles, extra databases, numbered migrations, then anything created *after* migrations in code
-  (dictionaries, views, grants, seed rows). Reading the app's boot hook is the only reliable way to find
-  these. Apply numbered SQL files in natural sort order (`sort -V`), skip archive subdirs. Schema setup
-  that is the same for every case is faster in the image build than in every trial.
+```python
+from lmnr.evals import ClickHouse, Postgres, Valkey
+
+class SupportEval(EvalRunner):
+    services = [
+        Postgres("16", database="support", migrations="../../../migrations", extensions=["pg_trgm"]),
+        ClickHouse("25.8", database="analytics", migrations="../../../clickhouse/migrations"),
+        Valkey("8"),                                        # REDIS_URL
+    ]
+```
+
+- **At image build** `lmnr-cli` adds each service to every image of the runner: its binaries come from
+  the vendor's official image at that version, in a stage of their own, so app changes never reinstall
+  them.
+- **In every trial, before `setup()`** the runner starts all of them (in parallel, each as its own OS
+  user, on 127.0.0.1, logging to `/logs/agent/<name>.log`), waits until they're ready, runs their
+  migrations and this case's `seed`, then adds their connection env (`DATABASE_URL`, `CLICKHOUSE_URL`,
+  `REDIS_URL`) to every later command, the app's included. A service that fails to start or migrate fails
+  the trial with the end of its log.
+- **`setup()` only seeds and starts the app**: `ctx.container.run_file("seed.py")` (it reads the same
+  env), or the helpers: `self.service(Postgres).insert(ctx, "users", rows)`, `.sql(ctx, query) -> rows`,
+  `.execute(ctx, sql)`, `.load_sql(ctx, "baseline.sql")`; `self.service(ClickHouse).insert(ctx, table,
+  rows)` / `.query(ctx, sql)`; `self.service(Valkey).cmd(ctx, "SET", "k", "v")`. `ctx.container.service`
+  is for processes no `Service` covers, typically the app itself.
+- **Versions are required:** pin the version production (or the project's compose file) runs. `"latest"`
+  works but warns on every run.
+- **Env:** `env="DATABASE_URL"` names the variable; a dict sets several from templates:
+  `env={"PGHOST": "{host}", "PGPORT": "{port}", "APP_DB": "{url}"}` (`{url}`, `{host}`, `{port}`,
+  `{database}`, `{user}`, `{password}`). The app must read its connection from env; a service's variable
+  may not also be in the runner's `env`. In a separate verifier, service env isn't set.
+- **Schemas:** if the app has migrations, reproduce what its own startup/migration does, in the same
+  order: extra roles, extra databases, numbered migrations, then anything created *after* migrations in
+  code (dictionaries, views, grants, seed rows). Reading the app's boot hook is the only reliable way to
+  find these. `Postgres(migrations=dir)` applies the directory's `*.sql` files in natural sort order
+  (subfolders skipped) from the live tree. `ClickHouse(migrations=dir)` applies them with the
+  `clickhouse-migrations` CLI (files named `1_init.sql`, versions recorded in `_migrations`); for files
+  the app applies some other way, `migrator="clickhouse-client"` runs every `*.sql` in natural order.
+  `Postgres(migrate="alembic upgrade head")` runs the app's own migration command instead (in the
+  container, with the service env), and
+  `init_sql=[...]` / `extensions=[...]` run before migrations. With plain SQL migrations,
+  `migrate_at="build"` runs them while the image is built, so trials start from a migrated database.
+  What must happen after migrations goes in `setup()`.
   If the app has no migrations (schema managed elsewhere, ORM auto-create off, a shared database owned by
   another service), infer the schema from the code: model/schema classes, ORM definitions, the queries the
-  entry point runs. Create **only the tables and columns the path under test needs**, in init SQL files
-  (e.g. `/docker-entrypoint-initdb.d`-style scripts `setup()` runs). Tell the user the schema was
-  inferred, since it can drift from the real one.
+  entry point runs. Create **only the tables and columns the path under test needs**, in a SQL directory
+  next to `eval.py` passed as `migrations=`. Tell the user the schema was inferred, since it can drift
+  from the real one.
+- **Server config:** `ClickHouse(config="clickhouse/config.xml", users="clickhouse/users.xml")` merges
+  production's server and user settings over the defaults (keep the ports in step with `http_port` /
+  `tcp_port`, and the `default` user without a password).
+- **Base image:** the services need glibc 2.36 or newer (Debian bookworm / trixie, Ubuntu 24.04; the
+  builder's bases are trixie). On an older base, pass `source=` an official image built on an older
+  distribution (`Postgres("16", source="postgres:16-bullseye")`); Alpine can't take them. `source=` also
+  picks a compatible image with extras: `Postgres("16", source="pgvector/pgvector:pg16-bookworm",
+  extensions=["vector"])`.
+- **Anything else** (MySQL, MinIO, an internal service): `Service.custom(name, version, start=...,
+  ready=..., source=..., bundle=[paths], env=..., port=...)` copies `bundle` paths (and the shared
+  libraries they need) from the `source` image; or `install=[Dockerfile lines]` installs it in the final
+  image. `start` must stay in the foreground ("Harbor runtime facts and quirks").
 - *Queues/caches/object stores.* If the app has an in-memory or local-disk fallback, use it by leaving the
   URL env unset. That is production-supported code, not a mock.
-- *Third-party edges.* For Slack, Linear and GitHub, run a Rystic simulator in the container instead of a
-  mock, booted by `setup()` (or the seed script it runs): [simulated-services.md](simulated-services.md).
-  Other external SaaS stays behind the app's existing base-URL/config. `EvalRunner`'s `services` and
-  `mocks` are not supported yet (setting them is an error).
+- *Third-party SaaS APIs.* Use a mirror where one exists ("Mirrors"); otherwise keep the SaaS behind the
+  app's existing base-URL/config. `EvalRunner.mocks` is not supported yet (setting it is an error).
 - *The app itself.* Run the production artifact: the real package started by `setup()`, or a compiled
-  binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that imports
-  and calls it in-process; the service boot still happens first.
-- *Readiness.* Give every `ctx.container.service` a `ready` check: the health endpoint (`http(...)`), the port
-  (`port(...)`), or the engine's own probe (`cmd("pg_isready")`). A service that dies or never gets ready
-  fails the trial with the end of its log.
-- *Env.* `ctx` commands get only the runner's `env` plus what Harbor sets, never the host's shell. If the
-  app is started with `env -i` and an explicit minimal env, forward the names it needs (API keys,
-  `LMNR_TRAJECTORY_PATH`).
+  binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that
+  imports and calls it in-process.
+- *Readiness.* Give the app's `ctx.container.service` a `ready` check: the health endpoint (`http(...)`),
+  the port (`port(...)`), or a probe command (`cmd(...)`). Declared services have theirs built in.
+- *Env.* `ctx` commands get only the runner's `env`, the services' env and what Harbor sets, never the
+  host's shell. If the app is started with `env -i` and an explicit minimal env, forward the names it
+  needs (the service URLs, API keys, `LMNR_TRAJECTORY_PATH`).
+
+## Mirrors
+
+A mirror is a service that simulates a third-party SaaS API (Slack, Linear, GitHub, Stripe...) inside
+the container: the app talks to it through its usual base-URL setting, each case seeds it with its own
+data, and `verify()` reads what the app did to it. Rystic is the first provider:
+
+```python
+from lmnr.evals import case_fixture
+from lmnr.evals.mirrors import Rystic
+
+class SupportEval(EvalRunner):
+    services = [
+        Postgres("16", migrations="../../../migrations"),
+        Rystic("slack", version="1.4", seed=case_fixture("slack.json"),
+               env={"SLACK_API_URL": "{url}/api/"}),
+    ]
+
+    async def verify(self, ctx):
+        slack = self.mirror("slack")
+        state = await slack.state(ctx)        # the simulator's state after the run
+        calls = await slack.calls(ctx)        # every API call the app made
+        ...
+```
+
+- **Remote runs only, for now** (`lmnr-cli eval run --remote`). Laminar gives every trial sandbox its own
+  short-lived Rystic access (`RYSTIC_TOKEN` and the proxy URLs). Never put `RYSTIC_TOKEN` in `env`,
+  `secrets` or `harbor.yaml`: it would replace the trial's. A local run fails at the mirror's start with
+  that reason; tell the user to run the dataset with `--remote`.
+- `version` pins the simulator. The image gets the pinned Rystic CLI (no key needed); each trial
+  downloads the simulator before it starts.
+- `seed=case_fixture("slack.json")` loads each case's `tests/fixtures/slack.json` (a register map) after
+  start; a case without the file starts empty (`case_fixture(..., required=True)` makes it an error). A
+  plain path is the same seed for every case. The seed never stays on disk in the container.
+- `env` templates use `{url}` (`http://127.0.0.1:<port>`) and `{port}`: point the app's existing
+  base-URL setting at it. If the app hard-codes the vendor's URL, that is a gap to raise with the user,
+  not a reason to patch the client.
+- In `verify()`: `mirror.state(ctx)`, `mirror.calls(ctx)`, `mirror.get(ctx, "/api/conversations.history",
+  channel="C1")` (a live request), and `await mirror.settle(ctx)` in `run()` to wait until the app
+  stopped reacting. With a separate verifier, set `snapshot=True` so `collect` saves the state and the
+  calls for `state()` / `calls()`.
+- See [simulated-services.md](simulated-services.md) for Rystic's products, scenarios and the hosted
+  proxy.
 
 ## LLM handling
 - **The LLM is real.** Evals exist to measure how the product behaves with a model; a canned response only
@@ -803,26 +960,30 @@ Single container, no docker-in-docker: boot the real dependencies in it.
   bump a cache-busting `ARG` placed before the stale step.
 
 ## Compiled artifacts
-If the product ships as a compiled binary, build it in a builder stage of the same Dockerfile, not on the
-host: a macOS host binary is the wrong format, and cross-compiling tends to fail on native dependencies.
-Use a builder base whose libc is not newer than the runtime stage's, and install the shared libs the binary
-links at runtime. Check what it reads relative to its working directory (templates, data files); a server
+If the product ships as a compiled binary, build it in a builder stage of the same Dockerfile
+(`Image.from_dockerfile`; services still go on top of its last stage), not on the host: a macOS host
+binary is the wrong format, and cross-compiling tends to fail on native dependencies. Use a builder base
+whose libc is not newer than the runtime stage's, and install the shared libs the binary links at
+runtime. Check what it reads relative to its working directory (templates, data files); a server
 missing them can start but silently never bind its port.
 
 ## Harbor runtime facts and quirks
 - Harbor starts the container with its own keep-alive command (`sleep infinity` on local Docker), so don't
-  rely on `CMD` or a base image's entrypoint (the `postgres` image's init) to start anything. `setup()`
-  starts every service with `ctx.container.service` (`nohup`, output to `/logs/agent/<name>.log`), and the
-  services survive after it returns. A background process started with plain `ctx.container.sh` must redirect its
+  rely on `CMD` or a base image's entrypoint (the `postgres` image's init) to start anything. Declared
+  services and `ctx.container.service` processes (`nohup`, output to `/logs/agent/<name>.log`) survive
+  after `setup()` returns. A background process started with plain `ctx.container.sh` must redirect its
   output, or the call may not return.
 - **No ports are published to the host.** Every call to the app must come from a process inside the
   container (`ctx.container.sh`, `ctx.container.run_file`).
 - `/logs/agent/` and `/logs/verifier/` are shared between container and host. Write every log under
   `/logs/agent/`.
-- Some services refuse to run as root (Postgres). Start them as their service user
-  (`ctx.container.service(..., user="postgres")`), and make the log directory writable by that user first
-  (`await ctx.container.sh("chmod 777 /logs/agent", user="root")`).
-- Some servers need a password in the connection string even when the database uses trust auth; use a dummy.
+- For `Service.custom` and `ctx.container.service` processes (declared built-ins handle these): some
+  servers refuse to run as root (start them with `user=` their service user, and make the log directory
+  writable by it first: `await ctx.container.sh("chmod 777 /logs/agent", user="root")`); `cmd` must stay in
+  the foreground (`postgres -D ...`, not `pg_ctl start`; no `--daemonize`), since an exited process counts
+  as crashed.
+- Some apps need a password in the connection string even when the database uses trust auth; built-in
+  `Postgres` puts a dummy one (`password=`) in the URL.
 - Keep command timeouts below the task's `[agent] timeout_sec`, and the entry point's own timeout below
   both.
 - **Secret scrubbing:** Harbor redacts agent env values from its output files. A very short value
@@ -866,7 +1027,8 @@ internal endpoint or CLI command, disabled unless explicitly enabled by config).
 
 Datasets written before `eval.py`, or kept runnable with bare `harbor run`, use Harbor's interfaces
 directly. Don't mix the two in one dataset: next to `eval.py`, `lmnr-cli` rejects an agent `import_path`
-or a verifier in `harbor.yaml`. The layout replaces `eval.py` with:
+or a verifier in `harbor.yaml`. Declared `services`, mirrors and the `Image` builder need `eval.py`;
+here the Dockerfile installs the services and the agent starts them. The layout replaces `eval.py` with:
 
 ```
 <folder>/
@@ -932,8 +1094,8 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
 - [ ] Entry point, inputs and terminal state identified; no production code changed (or a change agreed
       with the user)
 - [ ] Layout as in "Directory structure": `evals/<dataset>/agent/eval.py` with one `EvalRunner`,
-      everything specific to the dataset in its own `agent/` (Dockerfile, eval.py, optional seed
-      script), tasks under `evals/<dataset>/tasks/`, `evals/.gitignore` with `*/tasks/*` and
+      everything specific to the dataset in its own `agent/` (eval.py, optional seed script and
+      Dockerfile), tasks under `evals/<dataset>/tasks/`, `evals/.gitignore` with `*/tasks/*` and
       `!*/tasks/dataset.toml`
 - [ ] `tasks/dataset.toml` has `[dataset] name = "<org>/<name>"`; every `task.toml` has a unique
       `[task] name = "<org>/<case>"` (`lmnr-cli` writes it for new cases)
@@ -941,12 +1103,14 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
       by `docker_image`; per-case data in `environment/`; no per-task Dockerfile
 - [ ] A harness several datasets share is one runner in `evals/_shared/`, subclassed in each `eval.py`
       with its differences written as explicit extensions of the parent's attributes
-- [ ] The Dockerfile goes from rarely to often changing layers and copies specific paths, nothing from
-      `evals/`; never `COPY . .`
+- [ ] The image goes from rarely to often changing layers (lockfile installs, then code) and adds
+      specific paths from the live tree, nothing from `evals/`; never `COPY . .`
 - [ ] Real services seeded for as much of the stack as possible; any mock is a last resort and reported to
       the user; schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
-- [ ] `setup()` starts every service with `ctx.container.service` and a `ready` check; `run()` passes `ctx.model`,
+- [ ] Databases and caches are declared `services` at production's versions, with the app's own
+      migrations; `setup()` seeds and starts the app with `ctx.container.service` and a `ready` check;
+      `run()` passes `ctx.model`,
       records the outcome (including `failed` / `timeout`) with `ctx.set_result(...)`, and raises only for
       harness errors
 - [ ] `verify()` grades from the terminal state and `ctx.case.expected()`; reference answers only in
