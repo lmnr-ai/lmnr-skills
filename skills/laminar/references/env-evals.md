@@ -948,8 +948,8 @@ class SupportEval(EvalRunner):
   calls for `state()` / `calls()`.
 - lmnr-python's `examples/agent-evals` (`billing` dataset) has a worked Slack mirror: the seed with the
   customer's message, and `verify()` reading the bot's reply from `calls()`.
-- See [simulated-services.md](simulated-services.md) for Rystic's products, scenarios and the hosted
-  proxy.
+- See [simulated-services.md](simulated-services.md) for when to use one, the products, what a seed
+  must contain, and grading.
 
 ## Mocks
 
@@ -1054,7 +1054,8 @@ class SupportEval(EvalRunner):
 - **The LLM is real.** Evals exist to measure how the product behaves with a model; a canned response only
   tests the harness. Never substitute a fake or recorded model for the one under test unless the user
   explicitly asks for it (e.g. to run the harness without model calls). Then serve the canned responses
-  at the network edge (a stub server on the app's model base URL, not a patched client), and say in the
+  at the network edge (an HTTP mock on the app's model base URL, `mock.http(..., base_url_env=...)`, see
+  "Mocks"; not a patched client), and say in the
   report and the dataset's README that the scores don't measure the model.
 - Route the app's model calls through its normal configuration (profile row, base URL env), pointing at the
   endpoint and key from the runner's `env` (`secret("...")`). Don't patch the client.
