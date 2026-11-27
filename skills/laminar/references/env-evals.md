@@ -239,7 +239,7 @@ evals/
       dataset.toml                # [dataset] name + the task versions this checkout uses; committed
       <case-dir>/                 # git-ignored: pulled from Laminar, pushed back with eval dataset push
         task.toml                 # written by lmnr-cli when missing: [task] name, [environment] docker_image
-        instruction.md            # written by lmnr-cli when missing (a stub; edit it if run() reads it)
+        instruction.md            # the input run() sends, or the case's scenario (lmnr-cli writes a stub)
         environment/              # no Dockerfile: uploaded into the container's workdir at start
           case.json               # this case's data; any format setup() reads
         tests/
@@ -354,8 +354,10 @@ WORKDIR /case
   to the container, so neither the agent nor the app can read them.
 - `instruction.md` is either the input `run()` sends to the entry point (the user message, the prompt),
   verbatim, or, when the input lives in `environment/`, a short scenario for people reading the task:
-  what the case tests, its setup and input, and the expected outcome. `lmnr-cli` writes a one-line stub
-  into new tasks; replace it, since teammates read it in Laminar's task view.
+  what the case tests, its setup and input, and the expected outcome. `run()` reads it as
+  `ctx.case.instruction`. `lmnr-cli` writes a one-line stub into new tasks: always replace it, never leave
+  it empty or boilerplate. A driver that sends it would pass the stub to the product, and teammates read
+  it in Laminar's task view.
 
 ## Eval datasets: tasks in Laminar, versions in git
 
@@ -765,8 +767,10 @@ Single container, no docker-in-docker: boot the real dependencies in it.
   inferred, since it can drift from the real one.
 - *Queues/caches/object stores.* If the app has an in-memory or local-disk fallback, use it by leaving the
   URL env unset. That is production-supported code, not a mock.
-- *Third-party edges.* `EvalRunner`'s `services` and `mocks` are not supported yet (setting them is an
-  error); keep external SaaS behind the app's existing base-URL/config.
+- *Third-party edges.* For Slack, Linear and GitHub, run a Rystic simulator in the container instead of a
+  mock, booted by `setup()` (or the seed script it runs): [simulated-services.md](simulated-services.md).
+  Other external SaaS stays behind the app's existing base-URL/config. `EvalRunner`'s `services` and
+  `mocks` are not supported yet (setting them is an error).
 - *The app itself.* Run the production artifact: the real package started by `setup()`, or a compiled
   binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that imports
   and calls it in-process; the service boot still happens first.
@@ -840,10 +844,12 @@ Once the harness exists, a case is its data:
 
 1. `lmnr-cli eval task new evals/<dataset>/tasks/<case-dir>` writes `task.toml` (`[task] name =
    "<org>/<case-dir>"` with the `[dataset] name`'s org, `docker_image`, the runner's `new_task_toml`),
-   `instruction.md` and `tests/test.sh` (stubs). `eval run` and `eval dataset push` write the same files
+   `instruction.md` and `tests/test.sh` (stubs; replace `instruction.md` in step 2). `eval run` and `eval dataset push` write the same files
    for any task directory that lacks them, and add a missing `[task] name` / `docker_image` to an existing
-   `task.toml`, so a directory with just `environment/` and `tests/expected.json` is a case.
-2. Drop in the case data (`environment/case.json`) and the reference answer (`tests/expected.json`).
+   `task.toml`, so a directory with `environment/`, `tests/expected.json` and its `instruction.md` is a case.
+2. Drop in the case data (`environment/case.json`) and the reference answer (`tests/expected.json`), and
+   write `instruction.md`: the input `run()` sends, verbatim, or the case's scenario (see "Directory
+   structure").
 3. `lmnr-cli eval run --task <case-dir>`, then the whole dataset, then `lmnr-cli eval dataset push` and
    commit `tasks/dataset.toml`.
 
