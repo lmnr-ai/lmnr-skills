@@ -1002,16 +1002,18 @@ class SupportEval(EvalRunner):
     function. `args` are by parameter name in Python (`self` / `cls` dropped, defaults filled in) and the
     argument list in TypeScript, serialized like span input.
   - *In the app*, `mock.Error` raises `lmnr.MockedError` (`.type`, `.message`) in Python and a
-    `MockedError` from `@lmnr-ai/lmnr` whose `name` is the type in TypeScript. Python validates a returned
-    value against the function's return annotation (pydantic models, dataclasses and TypedDicts are built
-    from the JSON); a mismatch fails the call.
+    `MockedError` from `@lmnr-ai/lmnr` whose `name` is the type in TypeScript. Python builds a returned
+    value into the function's return annotation when it fits (pydantic models, dataclasses, TypedDicts),
+    and returns the JSON as is, with a warning in the app's log, when it doesn't.
   - *Requirements*: the app needs `lmnr` 0.9.3 or later (Python) / `@lmnr-ai/lmnr` 0.9.8 or later
     (TypeScript); with an older SDK the real function runs, silently. Check the app's lockfile. Upgrading
     the SDK, or adding `@observe` to a function that doesn't have it, is a change to the product: propose
     it to the user, don't make it as part of the eval.
-  - *TypeScript*: a mocked function must be declared `async`. A plain function, even one that returns a
-    Promise, throws `MockedError` (`MockFailure`) when its key is mocked. Generators can't be mocked in
-    either SDK.
+  - *TypeScript*: a mocked call returns a Promise, so mock functions that return one (`async`, or a plain
+    function returning a Promise). A sync function is mocked too, with a warning, but its callers get a
+    Promise. The mocked keys load on the app's first observed call: an `async` function waits for them,
+    any other function called before they arrive runs for real, and the app logs a warning naming it.
+    Generators can't be mocked in either SDK.
   - *Failures fail the call, never fall back*: an unreachable mock server makes every observed call in the
     app raise `MockedError` (type `MockFailure`), and so does a handler that crashes (its traceback is in
     `agent/mocks.log`). The trace marks answered calls with `lmnr.span.mocked`, and the call log has each
@@ -1206,8 +1208,8 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
       specific paths from the live tree, nothing from `evals/`; never `COPY . .`
 - [ ] Real services seeded for as much of the stack as possible, then mirrors; any mock is a last resort
       (HTTP mocks through the app's base-URL setting, or function mocks of observed functions with a
-      recent enough Laminar SDK in the app, `async` in TypeScript; data in `tests/fixtures/`, graded
-      with `ctx.mocks.calls`) and reported to the user; schemas created as the app's own boot does (or
+      recent enough Laminar SDK in the app, returning a Promise in TypeScript; data in
+      `tests/fixtures/`, graded with `ctx.mocks.calls`) and reported to the user; schemas created as the app's own boot does (or
       inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] Databases and caches are declared `services` at production's versions, with the app's own
