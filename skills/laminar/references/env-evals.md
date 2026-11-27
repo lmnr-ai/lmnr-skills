@@ -255,6 +255,7 @@ evals/
         tests/
           test.sh                 # written by lmnr-cli when missing (a stub: verify() grades)
           expected.json           # (optional) reference answer, read in verify() as ctx.case.expected()
+          fixtures/               # (optional) per-case data for mirrors' seeds and mock handlers
 ```
 
 Keep to these files rather than a helper tree. `seed.py` (any language: `seed.sh` works too) and any other
@@ -624,7 +625,7 @@ Every method runs in the Harbor process, on the host (your machine, or Laminar's
 | | Where it acts | What |
 |---|---|---|
 | `ctx.container.*` | in the container | `sh`, `run_file`, `service`, `wait_for`, `copy`, `write_file`, `read_text`, `read_json` |
-| the rest of `ctx` | on the host | `case`, `model`, `env`, `logger`, `set_result` / `result`, `artifacts`, `secrets` (verify) |
+| the rest of `ctx` | on the host | `case`, `model`, `env`, `logger`, `set_result` / `result`, `artifacts`, `secrets` and `mocks` (verify) |
 
 `ctx.container` is the agent's container in `setup` / `run` / `collect`, and the grading container in
 `verify` (the same one by default; see "The verifier"). Anything that must run next to the app goes
@@ -884,8 +885,8 @@ class SupportEval(EvalRunner):
   image. `start` must stay in the foreground ("Harbor runtime facts and quirks").
 - *Queues/caches/object stores.* If the app has an in-memory or local-disk fallback, use it by leaving the
   URL env unset. That is production-supported code, not a mock.
-- *Third-party SaaS APIs.* Use a mirror where one exists ("Mirrors"); otherwise keep the SaaS behind the
-  app's existing base-URL/config. `EvalRunner.mocks` is not supported yet (setting it is an error).
+- *Third-party SaaS APIs.* Use a mirror where one exists ("Mirrors"); otherwise an HTTP mock behind the
+  app's existing base-URL setting ("Mocks").
 - *The app itself.* Run the production artifact: the real package started by `setup()`, or a compiled
   binary. For a library or callable function, `run()` runs a small script (`ctx.container.run_file`) that
   imports and calls it in-process.
@@ -937,6 +938,76 @@ class SupportEval(EvalRunner):
   calls for `state()` / `calls()`.
 - See [simulated-services.md](simulated-services.md) for Rystic's products, scenarios and the hosted
   proxy.
+
+## Mocks
+
+A mock answers in place of a dependency you can't run: a private internal service, a SaaS with no
+mirror. It is the last resort, in this order: **the real service** (a declared `services` entry), **a
+mirror**, **a mock**. A mock only says what you wrote it to say, so it is a gap in what the eval
+measures: **tell the user about every mock**, what it replaces, and why the real thing or a mirror
+couldn't be used.
+
+```python
+from lmnr.evals import EvalRunner, mock
+
+def get_customer(call, ctx):              # function mock: the app's observed crm.get_customer
+    customer = ctx.fixture_json("crm.json").get(call.args["email"])
+    if customer is None:
+        raise mock.Error("CustomerNotFound", f"no customer {call.args['email']}")
+    return customer
+
+def helpdesk(req, ctx):                   # HTTP mock
+    if req.method == "POST" and req.path.endswith("/replies"):
+        return mock.Response(201, json={"id": f"reply-{req.index}"})
+    return None                           # anything else: 501, logged as unmatched
+
+class SupportEval(EvalRunner):
+    mocks = {
+        "crm.get_customer": get_customer,
+        "https://helpdesk.example.com/api": mock.http(helpdesk, base_url_env="HELPDESK_API_URL"),
+    }
+    mock_dependencies = ["anthropic>=2.4.0"]   # what eval.py imports at the top, for the container
+
+    async def verify(self, ctx):
+        posts = [c for c in ctx.mocks.calls("https://helpdesk.example.com/api")
+                 if c["request"]["method"] == "POST"]
+        return {"posted": len(posts) == 1}
+```
+
+- **HTTP mocks** are the default. The key is the API's base URL (a host, optionally with a path); the
+  runner sets `base_url_env` to the mock's URL, so point the app's existing base-URL setting at it,
+  exactly as for a mirror. If the app hard-codes the vendor's URL, raise it with the user; don't patch
+  the client. A handler gets `req` (`method`, `path` (everything after the host), `query` (a dict of
+  lists), `headers`, `body`, `text()`, `json()`, `index`) and returns a JSON value (sent as `200`),
+  `mock.Response(status, json=... | text=... | body=..., headers=...)`, or `None` / raises
+  `mock.Unmatched` for a request it doesn't handle (`501`). `raise mock.Error(type, message)` answers
+  `500` with that error.
+- **Function mocks** replace an observed function by its span name (`@observe(name="crm.get_customer")`,
+  else the function's name). A handler gets `call` (`key`, `args` (by parameter name in Python, a list in
+  TypeScript), `index`) and returns the value the function returns, raises `mock.Error(type, message)`
+  for the function to raise, or returns `mock.PASSTHROUGH` to run the real function. They need the
+  app's Laminar SDK to support mocks; with an SDK that doesn't, the real function runs. Until then, only
+  HTTP mocks reach an unmodified app.
+- Every handler also gets `ctx`: `ctx.state` (one dict per trial, shared by all handlers),
+  `ctx.calls` (this key's earlier calls), `ctx.fixture(path)` / `fixture_text` / `fixture_json` (the
+  case's `tests/fixtures/`), `ctx.case.name` / `ctx.case.metadata`, `ctx.env`. Calls are handled one at a
+  time, so `index` and `state` are deterministic.
+- **Handlers run in the container**, in a mock server the runner starts after `services` and before
+  `setup`. They must be top-level functions (sync or async) in `eval.py` or a module under `evals/`
+  (`_shared/mocks.py`), not lambdas or methods. The server imports `eval.py` there, so whatever it
+  imports at the top must be installed: list it in `mock_dependencies` (they go into the Laminar layer,
+  not the app's environment). The handlers and fixtures exist only in the server's memory once it has
+  started; the agent can't read them.
+- **Per-case data** goes in `tests/fixtures/`, next to `expected.json`, never in `environment/` (which
+  the agent can read).
+- **Grade with the call log.** In `verify()`, `ctx.mocks.calls(key)` lists one mock's calls in order
+  (`request`, `outcome`, `response`, `index`, `ts`); `ctx.mocks.all()` all of them; `ctx.mocks.unmatched()`
+  the requests no handler answered (a sign the mock misses a route the app uses). The log is collected
+  as `/logs/artifacts/mocks.jsonl` (so it works with a separate verifier too); the server's own log,
+  with handler tracebacks, is the trial's `agent/mocks.log`.
+- The runner also sets `LMNR_MOCK_URL` (the server's address, for the SDK's function mocks). Never set
+  it yourself; if the app is started with an explicit env (`env -i`), forward it and every
+  `base_url_env` like the service URLs ("Services", *Env*).
 
 ## LLM handling
 - **The LLM is real.** Evals exist to measure how the product behaves with a model; a canned response only
@@ -1105,8 +1176,10 @@ stops copying the scripts (`seed.py` stays, run with `ctx.container.run_file`).
       with its differences written as explicit extensions of the parent's attributes
 - [ ] The image goes from rarely to often changing layers (lockfile installs, then code) and adds
       specific paths from the live tree, nothing from `evals/`; never `COPY . .`
-- [ ] Real services seeded for as much of the stack as possible; any mock is a last resort and reported to
-      the user; schemas created as the app's own boot does (or inferred from code, minimal, and flagged)
+- [ ] Real services seeded for as much of the stack as possible, then mirrors; any mock is a last resort
+      (HTTP mocks through the app's base-URL setting, data in `tests/fixtures/`, graded with
+      `ctx.mocks.calls`) and reported to the user; schemas created as the app's own boot does (or
+      inferred from code, minimal, and flagged)
 - [ ] Seed data looks current and real: timestamps, ids, names
 - [ ] Databases and caches are declared `services` at production's versions, with the app's own
       migrations; `setup()` seeds and starts the app with `ctx.container.service` and a `ready` check;
